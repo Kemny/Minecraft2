@@ -111,95 +111,79 @@ void ATerrainManager::RebuildChunk(FChunk& Chunk, const FVector& WorldPosition)
 					// Check if calculation is necessary
 					if (!IsBlockTransparent(Block.Type) && IsBlockTransparent(PossibleAirBlock.Type))
 					{
-						int32 NewIndex = INDEX_NONE;
-						// Not uint8 since it would just wrap back
-						for (int16 i = Y - 1; i >= 0; i--)
-						{
-							NewIndex = Vertices.IndexOfByKey(FVector(X * BlockSize, i * BlockSize, Z * BlockSize));
-							
-							if (NewIndex != INDEX_NONE)
-								break;
-						}
+						const bool HasRightNeighbor = HasBlock(Chunk, FVectorByte(X + 1,Y,Z));
+						const bool HasTopNeighbor = HasBlock(Chunk, FVectorByte(X,Y + 1,Z));
 						
-						if (NewIndex == INDEX_NONE)
+						if (!BottomLeft && HasRightNeighbor)
 						{
-							for (int16 i = X - 1; i >= 0; i--)
-							{
-								//TODO Found index never used
-								NewIndex = Vertices.IndexOfByKey(FVector(i * BlockSize, FoundIndex * BlockSize, Z * BlockSize));
+							auto Position = FVector(X * BlockSize, Y * BlockSize, Z * BlockSize);
+							Vertices.Add(Position);
+							Vertices.Add(Position); // Placeholder for triangles
 							
-								if (NewIndex != INDEX_NONE)
-									break;
-							}
+							Triangles.Add(Triangle + 1);
+							Triangles.Add(Triangle);
+							Triangle += 2;
+
+							BottomLeft = &Position;
+						}
+						else if (!BottomRight && !HasRightNeighbor)
+						{
+							auto Position = FVector(X * BlockSize, Y * BlockSize, Z * BlockSize);
 							
-							if (NewIndex == INDEX_NONE)
+							if (!BottomLeft)
 							{
-								const auto Position = FVector(X * BlockSize, Y * BlockSize, Z * BlockSize);
 								Vertices.Add(Position);
 								Vertices.Add(Position); // Placeholder for triangles
-
-								//Vertices.Add(FVector((X + 1) * BlockSize, Y * BlockSize, Z * BlockSize));
 							
 								Triangles.Add(Triangle + 1);
 								Triangles.Add(Triangle);
 								Triangle += 2;
 							}
+							
+							BottomRight = &Position;
 						}
 						
-						NewIndex = INDEX_NONE;
-						if (!HasBlock(Chunk, FVectorByte(X, Y + 1,Z)))
+						if (!HasTopNeighbor)
 						{
-							for (int16 i = X - 1; i >= 0; i--)
+							if (!TopLeft && HasRightNeighbor)
 							{
-								NewIndex = Vertices.IndexOfByKey(FVector(i * BlockSize, (Y + 1) * BlockSize, Z * BlockSize));
+								auto Position = FVector(X * BlockSize, Y * BlockSize, Z * BlockSize);
+								Vertices.Add(Position);
+								Vertices.Add(Position); // Placeholder for triangles
 							
-								if (NewIndex != INDEX_NONE)
-									break;
-							}
-							if (NewIndex == INDEX_NONE)
-							{
-								Vertices.Add(FVector(X * BlockSize, (Y + 1) * BlockSize, Z * BlockSize));
-								Vertices.Add(FVector((X + 1) * BlockSize, (Y + 1) * BlockSize, Z * BlockSize));
-
 								Triangles.Add(Triangle);
 								Triangles.Add(Triangle - 1);
 								Triangles.Add(Triangle);
 								Triangles.Add(Triangle + 1);
 								
 								Triangle += 2;
-							}
-							if (true)
-							{
-								
-							}
-							Vertices.Add(FVector(X * BlockSize, (Y + 1) * BlockSize, Z * BlockSize));
-							Vertices.Add(FVector((X + 1) * BlockSize, (Y + 1) * BlockSize, Z * BlockSize));
 
-							Triangles.Add(Triangle);
-							Triangles.Add(Triangle - 1);
-							Triangles.Add(Triangle);
-							Triangles.Add(Triangle + 1);
+								TopLeft = &Position;
+							}
+							else if (BottomRight)
+							{
+								Vertices[Vertices.Num() -1] = FVector(X * BlockSize, Y * BlockSize, Z * BlockSize);
+								Vertices[Vertices.Num() -3] = BottomRight == nullptr ? FVector(X, Vertices[Vertices.Num() -4].Y, Z) : *BottomRight;
 								
-							Triangle += 2;
-							
-							Normals.Add(FVector(1, 0, 0));
-							Normals.Add(FVector(1, 0, 0));
-							Normals.Add(FVector(1, 0, 0));
-							Normals.Add(FVector(1, 0, 0));
-							Normals.Add(FVector(1, 0, 0));
-							Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
+								Normals.Add(FVector(1, 0, 0));
 			
-							VertexColors.Add(BlockColors[Block.Type]);
-							VertexColors.Add(BlockColors[Block.Type]);
-							VertexColors.Add(BlockColors[Block.Type]);
-							VertexColors.Add(BlockColors[Block.Type]);
-							VertexColors.Add(BlockColors[Block.Type]);
-							VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+								VertexColors.Add(BlockColors[Block.Type]);
+
+								BottomLeft = nullptr;
+								BottomRight = nullptr;
+								TopLeft = nullptr;
+							}
 						}
-					}
-					else
-					{
-						
 					}
 				}
 			}
