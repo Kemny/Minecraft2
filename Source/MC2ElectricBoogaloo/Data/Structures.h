@@ -46,6 +46,10 @@ public:
 	{
 		return X == Other.X && Y == Other.Y;
 	}
+	bool operator!=(const FVector2DInt& Other) const
+	{
+		return X != Other.X || Y != Other.Y;
+	}
 	bool Equals(const FVector2DInt& Other) const
 	{
 		return X == Other.X && Y == Other.Y;

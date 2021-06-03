@@ -9,6 +9,6 @@ public class MC2ElectricBoogalooEditorTarget : TargetRules
 	{
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.Add("MC2ElectricBoogaloo");
+		ExtraModuleNames.AddRange(new string[] {"MC2ElectricBoogaloo", "ComputeShaders"});
 	}
 }
