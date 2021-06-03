@@ -18,6 +18,7 @@ enum class EBlockType : uint8
 	Stone = 4,
 	Snow = 5
 };
+
 UENUM(BlueprintType)
 enum class EBlockDirection : uint8
 {
@@ -28,6 +29,18 @@ enum class EBlockDirection : uint8
 	Front = 4,
 	Back = 5
 };
+
+USTRUCT(BlueprintType)
+struct FBlockSpawnInfo
+{
+	GENERATED_BODY()
+	
+	UPROPERTY(EditAnywhere)
+	EBlockType Type;
+	UPROPERTY(EditAnywhere)
+	uint8 SpawnStopHeight;
+};
+
 USTRUCT(BlueprintType)
 struct FBlock
 {

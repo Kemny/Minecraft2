@@ -13,7 +13,7 @@ class UProceduralMeshComponent;
 class ATerrainManager;
 
 USTRUCT()
-struct FMeshBuilder
+struct FMeshInfo
 {
 	GENERATED_BODY()
 
@@ -25,6 +25,14 @@ struct FMeshBuilder
 	TArray<FVector> Normals;
 	UPROPERTY()
 	TArray<FLinearColor> VertexColors;
+
+	void Clear()
+	{
+		Vertices.Empty();
+		Triangles.Empty();
+		Normals.Empty();
+		VertexColors.Empty();
+	}
 };
 
 UCLASS()
@@ -35,7 +43,7 @@ class MC2ELECTRICBOOGALOO_API AChunk : public AActor
 public:	
 	AChunk();
 	UFUNCTION()
-	void InitializeVariables(ATerrainManager* NewParent, const FVector2DInt& Index);
+	void InitializeVariables(ATerrainManager* NewParent);
 
 protected:
 	UPROPERTY()
@@ -49,7 +57,9 @@ protected:
 	// TODO Merge X and Y into 1 array
 	UPROPERTY()
 	TMap<FVectorByte, FBlock> Blocks;
-	
+
+	UPROPERTY()
+	FMeshInfo MeshInfo;
 public:
 	UFUNCTION()
 	FVector2DInt GetWorldPosition() const { return WorldIndex; }
@@ -71,8 +81,12 @@ public:
 	FVector GetBlockWorldPosition(const FVectorByte& BlockIndex) const;
 	
 	UFUNCTION()
-	void AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlockType& BlockType, const FVector& V1, const FVector& V2, const FVector& V3, const FVector& V4) const;
+	void AddPlane(const EBlockDirection& Direction, const EBlockType& BlockType, const FVectorByte BlockIndex);
 
+	UFUNCTION()
+	void RebuildBlocks(const FVector2DInt& Index);
+	UFUNCTION()
+	void RebuildGeometry();
 	UFUNCTION()
 	void Rebuild(const FVector2DInt& Index);
 };

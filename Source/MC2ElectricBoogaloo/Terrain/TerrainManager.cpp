@@ -17,10 +17,21 @@ void ATerrainManager::CreateTerrain()
 			auto Spawned = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
 			
 			FVector2DInt Index{X,Y};
-			Spawned->InitializeVariables(this, {X,Y});
+			Spawned->InitializeVariables(this);
+			Spawned->Rebuild({X,Y});
 			Chunks.Add(Index, Spawned);
 		}
 	}
+}
+
+EBlockType ATerrainManager::GetChunkBlockType(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex)
+{
+	FBlock Block;
+	
+	if (Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->GetBlockSafe(BlockIndex, Block))
+		return Block.Type;
+	
+	return EBlockType::End;
 }
 
 void ATerrainManager::Tick(float DeltaTime)
@@ -67,7 +78,8 @@ void ATerrainManager::Tick(float DeltaTime)
 
 		for (const auto & ObsoleteChunk : ObsoleteChunks)
 			Chunks.Remove(ObsoleteChunk->GetWorldPosition());
-		
+
+		// Generate Block Data
 		for (int32 X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
 		{
 			for (int32 Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
@@ -85,8 +97,18 @@ void ATerrainManager::Tick(float DeltaTime)
 					ObsoleteChunks.RemoveAt(ChunkNum - 1);
 					
 					Chunks.Add(Index, Chunk);
-					Chunk->Rebuild(Index);
+					Chunk->RebuildBlocks(Index);
 				}
+			}
+		}
+		// TODO Don't rebuild everything
+		// Generate Geometry
+		for (int32 X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
+		{
+			for (int32 Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
+			{
+				const FVector2DInt Index{X + PlayerIndex.X,Y + PlayerIndex.Y};
+				Chunks[Index]->RebuildGeometry();
 			}
 		}
 
