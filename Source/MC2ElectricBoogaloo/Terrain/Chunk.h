@@ -66,7 +66,9 @@ public:
 		return false;
 	}
 	UFUNCTION()
-	FVector GetBlockLocalPosition(const FVector& BlockIndex) const;
+	FVector GetBlockLocalPosition(const FVectorByte& BlockIndex) const;
+	UFUNCTION()
+	FVector GetBlockWorldPosition(const FVectorByte& BlockIndex) const;
 	
 	UFUNCTION()
 	void AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlockType& BlockType, const FVector& V1, const FVector& V2, const FVector& V3, const FVector& V4) const;

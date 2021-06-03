@@ -12,10 +12,11 @@ UENUM(BlueprintType)
 enum class EBlockType : uint8
 {
 	Air = 0,
-	Grass = 1,
-	Dirt = 2,
-	Stone = 3,
-	Snow = 4
+	End = 1,
+	Grass = 2,
+	Dirt = 3,
+	Stone = 4,
+	Snow = 5
 };
 UENUM(BlueprintType)
 enum class EBlockDirection : uint8
@@ -67,6 +68,7 @@ public:
 		case EBlockType::Dirt: return false;
 		case EBlockType::Stone: return false;
 		case EBlockType::Snow: return false;
+		case EBlockType::End: return false;
 		default: return true;
 		}
 	}

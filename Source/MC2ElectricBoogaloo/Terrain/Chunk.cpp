@@ -31,14 +31,7 @@ void AChunk::AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlock
 	if (!Parent)
 		return;
 
-	//const auto& Color = Parent->GetTypeColor(BlockType);
-	const FLinearColor& Color = FLinearColor
-	(
-		(float)FMath::Rand() / RAND_MAX,
-		(float)FMath::Rand() / RAND_MAX,
-		(float)FMath::Rand() / RAND_MAX,
-		0
-	);
+	const auto& Color = Parent->GetTypeColor(BlockType);
 
 	const auto T1 = Builder.Triangles.Add(0);
 	const auto T2 = Builder.Triangles.Add(1);
@@ -99,7 +92,15 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 
 	const auto& BlockSize = Parent->GetBlockSize();
 	const auto& BlockCount = Parent->GetBlockCount();
+	const auto& NoiseDamper = Parent->GetNoiseDamper();
+	const auto& NoisePersistence = Parent->GetNoisePersistence();
+	const auto& NoiseOctaves = Parent->GetNoiseOctaves();
 
+	/*
+	if (NoiseDamper <= 0 || NoiseOctaves <= 0)
+		return;
+	*/
+	
 	const auto NewPosition = FVector(
 		WorldIndex.X * BlockSize * BlockCount.X,
 		WorldIndex.Y * BlockSize * BlockCount.Y,
@@ -108,39 +109,47 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 	SetActorLocation(NewPosition);
 
 	Blocks.Empty(BlockCount.X * BlockCount.Y * BlockCount.Z);
-	
-	const float Frequencies[]{ 0.1, 0.2, 0.4, 0.8, 0.16 };
-	const float Amplitudes[]{ 1, 0.5f, 0.25f, 0.125f, 0.0625f };
 
-	float AmpTotal = 0;
-	for (uint8 i = 0; i <= 5; ++i)
-		AmpTotal += Amplitudes[i];
+	for (uint8 X = 0; X < BlockCount.X; ++X)
+	{
+		for (uint8 Y = 0; Y < BlockCount.Y; ++Y)
+		{
+			Blocks.Add(FVectorByte(X,Y,0), {EBlockType::End});
+		}
+	}
+	
 	
 	for (uint8 X = 0; X < BlockCount.X; ++X)
 	{
 		for (uint8 Y = 0; Y < BlockCount.Y; ++Y)
 		{
-			for (uint8 Z = 0; Z < BlockCount.Z; ++Z)
+			float Scale = 1;
+			float Amplitude = 1;
+			float TotalAmplitude = 0;
+			
+			const auto& Pos = GetBlockWorldPosition({X,Y,0});
+			const FVector2D ScaledPos{Pos.X / NoiseDamper / BlockSize, Pos.Y / NoiseDamper / BlockSize };
+			
+			float Noise = 0;
+			for (int32 i = NoiseOctaves - 1; i >= 0; --i)
 			{
-				float Noise = 0;
-				for (uint8 i = 0; i <= 5; ++i)
-				{
-					Noise += FMath::PerlinNoise2D(FVector2D(
-							(Frequencies[i] * WorldIndex.X + X + static_cast<float>(X) + .3f),
-							(Frequencies[i] * WorldIndex.Y + Y + static_cast<float>(Y) + .3f)
-						)) * Amplitudes[i];
-				}
-				Noise = (Noise + 1 * AmpTotal) / (2 * AmpTotal);
-				//Noise -=.5f;
-				const auto HeightNoise = Noise * BlockCount.Z;
-				
-				//Blocks.Add(FVectorByte(X,Y,Z), { Z == 0 ? EBlockType::Stone : EBlockType::Air});
-				//Blocks.Add(FVectorByte(X,Y,Z), { Z > HeightNoise ? EBlockType::Air : EBlockType::Stone});
+				Amplitude /= NoisePersistence;
+				Scale *= NoisePersistence;
+				TotalAmplitude += Amplitude;
 
-				//UE_LOG(LogTemp, Warning, TEXT("%f"), Noise);
-				
-				if (Z >= HeightNoise)
+				Noise += Amplitude * FMath::PerlinNoise2D(Scale * ScaledPos);
+			}
+
+			Noise /= TotalAmplitude;
+			Noise = (Noise + 1) / 2;
+			const auto HeightNoise = Noise * BlockCount.Z;
+			for (uint8 Z = 1; Z < BlockCount.Z; ++Z)
+			{
+				//if (Z <= HeightNoise) Cool looking effect
+				if (Z > HeightNoise)
+				{
 					Blocks.Add(FVectorByte(X,Y,Z), { EBlockType::Air});
+				}
 				else
 				{
 					for (const auto & BlockHeight : Heights)
@@ -156,7 +165,6 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 		}
 	}
 
-	// I sadly didn't find out how to properly do greedy meshing. At least UE4 lets you reuse vertices
 	FMeshBuilder Builder;
 	for (const auto & Block : Blocks)
 	{
@@ -171,10 +179,10 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::UpVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1))
 			);
 		}
 		
@@ -186,10 +194,10 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::RightVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1))
 			);
 		}
 		// Forward
@@ -200,10 +208,10 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::ForwardVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z + 1))
 			);
 		}
 		
@@ -215,10 +223,10 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::DownVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y + 1, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z))
 			);
 		}
 		// Left
@@ -229,10 +237,10 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::LeftVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X + 1, Block.Key.Y, Block.Key.Z + 1))
 			);
 		}
 		
@@ -244,21 +252,35 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 				Builder,
 				FVector::BackwardVector,
 				Block.Value.Type,
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1)),
-				GetBlockLocalPosition(FVector(Block.Key.X, Block.Key.Y, Block.Key.Z + 1))
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y + 1, Block.Key.Z + 1)),
+				GetBlockLocalPosition(FVectorByte(Block.Key.X, Block.Key.Y, Block.Key.Z + 1))
 			);
 		}
 	}
 	Mesh->CreateMeshSection_LinearColor(0, Builder.Vertices, Builder.Triangles, Builder.Normals, TArray<FVector2D>{}, Builder.VertexColors, TArray<FProcMeshTangent>{}, true);
 }
 
-FVector AChunk::GetBlockLocalPosition(const FVector& BlockIndex) const
+FVector AChunk::GetBlockLocalPosition(const FVectorByte& BlockIndex) const
 {
 	if (!Parent)
 		return {};
 
 	const auto& BlockSize = Parent->GetBlockSize();
 	return FVector(BlockIndex.X * BlockSize, BlockIndex.Y * BlockSize, BlockIndex.Z * BlockSize);
+}
+
+FVector AChunk::GetBlockWorldPosition(const FVectorByte& BlockIndex) const
+{
+	if (!Parent)
+		return {};
+
+	const auto& BlockSize = Parent->GetBlockSize();
+	const auto& Location = GetActorLocation();
+	return FVector(
+		Location.X + BlockIndex.X * BlockSize, 
+		Location.Y + BlockIndex.Y * BlockSize, 
+		Location.Z + BlockIndex.Z * BlockSize
+	);
 }

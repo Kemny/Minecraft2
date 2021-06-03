@@ -8,10 +8,8 @@ ATerrainManager::ATerrainManager()
 	PrimaryActorTick.bCanEverTick = true;
 }
 
-void ATerrainManager::BeginPlay()
+void ATerrainManager::CreateTerrain()
 {
-	Super::BeginPlay();
-
 	for (int X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
 	{
 		for (int Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
@@ -33,7 +31,6 @@ void ATerrainManager::Tick(float DeltaTime)
 	
 	if (!World)
 		return;
-
 	
 	// Player Controller and pawn aren't cached to allow simple destruction. Can be changed for performance
 	const auto PC = UGameplayStatics::GetPlayerController(World, 0);
@@ -93,41 +90,10 @@ void ATerrainManager::Tick(float DeltaTime)
 			}
 		}
 
-		/*
-		const auto XMax = PlayerIndex.X;
-		const auto XMin = PlayerIndex.X;
-		
-		const auto YMax = PlayerIndex.Y + 1;
-		const auto YMin = PlayerIndex.Y;
-		
-		if (!C1)
-		{
-			C1 = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
-			C1->InitializeVariables(this, PlayerIndex);
-			
-			C2 = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
-			C2->InitializeVariables(this, PlayerIndex + FVector2DInt{0,1});
-		}
-		else
-		{
-			{
-				const auto& WP = C1->GetWorldPosition();
-				if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
-				{
-					C1->Rebuild(PlayerIndex, {0,0});
-				}
-			}
-			{
-				const auto& WP = C2->GetWorldPosition();
-				if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
-				{
-					C2->Rebuild(PlayerIndex, {0,1});
-				}
-			}
-		}
-		*/
 		LastPlayerIndex = PlayerIndex;
 	}
 }
+
+
 
 
