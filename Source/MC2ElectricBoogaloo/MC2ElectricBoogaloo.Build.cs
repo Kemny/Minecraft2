@@ -9,7 +9,7 @@ public class MC2ElectricBoogaloo : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore" });
-		PrivateDependencyModuleNames.AddRange(new string[] {"ComputeShaders", "ProceduralMeshComponent" });
+		PrivateDependencyModuleNames.AddRange(new string[] {"ProceduralMeshComponent" });
 
 	}
 }

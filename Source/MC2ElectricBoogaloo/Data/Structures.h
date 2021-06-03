@@ -54,9 +54,9 @@ public:
 	{
 		return X == Other.X && Y == Other.Y;
 	}
-	float Distance(const FVector2DInt& Other) const
+	static float Distance(const FVector2DInt& Target, const FVector2DInt& Start)
 	{
-		return FMath::Sqrt(FMath::Square(Other.X- X) + FMath::Square(Other.Y- Y));
+		return FMath::Sqrt(FMath::Square(Target.X - Start.X) + FMath::Square(Target.Y- Start.Y));
 	}
 	FVector2DInt Abs() const
 	{

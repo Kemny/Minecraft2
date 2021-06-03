@@ -35,13 +35,13 @@ class MC2ELECTRICBOOGALOO_API AChunk : public AActor
 public:	
 	AChunk();
 	UFUNCTION()
-	void InitializeVariables(ATerrainManager* NewParent, const FVector2DInt& NewIndex);
+	void InitializeVariables(ATerrainManager* NewParent, const FVector2DInt& Index);
 
 protected:
 	UPROPERTY()
 	ATerrainManager* Parent;
 	UPROPERTY(VisibleAnywhere)
-	FVector2DInt Index;
+	FVector2DInt WorldIndex;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UProceduralMeshComponent* Mesh;
@@ -51,6 +51,8 @@ protected:
 	TMap<FVectorByte, FBlock> Blocks;
 	
 public:
+	UFUNCTION()
+	FVector2DInt GetWorldPosition() const { return WorldIndex; }
 	UFUNCTION()
 	bool HasBlock(const FVectorByte& BlockIndex) const { return Blocks.Contains(BlockIndex); }
 	UFUNCTION()
@@ -70,5 +72,5 @@ public:
 	void AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlockType& BlockType, const FVector& V1, const FVector& V2, const FVector& V3, const FVector& V4) const;
 
 	UFUNCTION()
-	void Rebuild(const FVector2DInt& PlayerIndex);
+	void Rebuild(const FVector2DInt& Index);
 };

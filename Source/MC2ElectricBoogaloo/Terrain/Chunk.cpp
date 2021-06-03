@@ -14,12 +14,16 @@ AChunk::AChunk()
 		SetRootComponent(Mesh);
 }
 
-void AChunk::InitializeVariables(ATerrainManager* NewParent, const FVector2DInt& NewIndex)
+void AChunk::InitializeVariables(ATerrainManager* NewParent, const FVector2DInt& Index)
 {
 	Parent = NewParent;
-	Index = NewIndex;
-
-	Rebuild({0,0});
+	if (!Parent)
+		return;;
+	
+	const auto& BlockCount = Parent->GetBlockCount();
+	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
+	
+	Rebuild(Index);
 }
 
 void AChunk::AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlockType& BlockType, const FVector& V1, const FVector& V2, const FVector& V3, const FVector& V4) const
@@ -27,50 +31,63 @@ void AChunk::AddPlane(FMeshBuilder& Builder, const FVector& Normal, const EBlock
 	if (!Parent)
 		return;
 
-	const auto& Color = Parent->GetTypeColor(BlockType);
+	//const auto& Color = Parent->GetTypeColor(BlockType);
+	const FLinearColor& Color = FLinearColor
+	(
+		(float)FMath::Rand() / RAND_MAX,
+		(float)FMath::Rand() / RAND_MAX,
+		(float)FMath::Rand() / RAND_MAX,
+		0
+	);
+
+	const auto T1 = Builder.Triangles.Add(0);
+	const auto T2 = Builder.Triangles.Add(1);
+	const auto T3 = Builder.Triangles.Add(2);
+	const auto T4 = Builder.Triangles.Add(0);
+	const auto T5 = Builder.Triangles.Add(2);
+	const auto T6 = Builder.Triangles.Add(3);
 	
-	const auto V1I = Builder.Vertices.AddUnique(V1);
-	// If is new
-	if (V1I == Builder.Vertices.Num() - 1)
-	{
-		Builder.Normals.Add(Normal);
-		Builder.VertexColors.Add(Color);
-	}
-			
-	const auto V2I = Builder.Vertices.AddUnique(V2);
-	// If is new
-	if (V2I == Builder.Vertices.Num() - 1)
-	{
-		Builder.Normals.Add(Normal);
-		Builder.VertexColors.Add(Color);
-	}
-			
-	const auto V3I = Builder.Vertices.AddUnique(V3);
-	// If is new
-	if (V3I == Builder.Vertices.Num() - 1)
-	{
-		Builder.Normals.Add(Normal);
-		Builder.VertexColors.Add(Color);
-	}
-			
-	const auto V4I = Builder.Vertices.AddUnique(V4);
-	// If is new
-	if (V4I == Builder.Vertices.Num() - 1)
-	{
-		Builder.Normals.Add(Normal);
-		Builder.VertexColors.Add(Color);
-	}
+	int32 Index;
 	
-	Builder.Triangles.Add(V1I);
-	Builder.Triangles.Add(V2I);
-	Builder.Triangles.Add(V3I);
-	Builder.Triangles.Add(V1I);
-	Builder.Triangles.Add(V3I);
-	Builder.Triangles.Add(V4I);
+	if (!Builder.Vertices.Find(V1, Index))
+	{
+		Index = Builder.Vertices.Add(V1);
+		Builder.Normals.Add(Normal);
+		Builder.VertexColors.Add(Color);
+	}
+	Builder.Triangles[T1] = Index;
+	Builder.Triangles[T4] = Index;
+	
+	if (!Builder.Vertices.Find(V2, Index))
+	{
+		Index = Builder.Vertices.Add(V2);
+		Builder.Normals.Add(Normal);
+		Builder.VertexColors.Add(Color);
+	}
+	Builder.Triangles[T2] = Index;
+	
+	if (!Builder.Vertices.Find(V3, Index))
+	{
+		Index = Builder.Vertices.Add(V3);
+		Builder.Normals.Add(Normal);
+		Builder.VertexColors.Add(Color);
+	}
+	Builder.Triangles[T3] = Index;
+	Builder.Triangles[T5] = Index;
+	
+	if (!Builder.Vertices.Find(V4, Index))
+	{
+		Index = Builder.Vertices.Add(V4);
+		Builder.Normals.Add(Normal);
+		Builder.VertexColors.Add(Color);
+	}
+	Builder.Triangles[T6] = Index;
 }
 
-void AChunk::Rebuild(const FVector2DInt& PlayerIndex)
+void AChunk::Rebuild(const FVector2DInt& Index)
 {
+	WorldIndex = Index;
+	
 	if (!Parent)
 		return;
 	
@@ -83,13 +100,21 @@ void AChunk::Rebuild(const FVector2DInt& PlayerIndex)
 	const auto& BlockSize = Parent->GetBlockSize();
 	const auto& BlockCount = Parent->GetBlockCount();
 
-	SetActorLocation(FVector(
-		(Index.X + PlayerIndex.X) * BlockSize * BlockCount.X,
-		(Index.Y + PlayerIndex.Y) * BlockSize * BlockCount.Y,
-		0)
-	);
+	const auto NewPosition = FVector(
+		WorldIndex.X * BlockSize * BlockCount.X,
+		WorldIndex.Y * BlockSize * BlockCount.Y,
+		0);
 	
-	Blocks.Empty();
+	SetActorLocation(NewPosition);
+
+	Blocks.Empty(BlockCount.X * BlockCount.Y * BlockCount.Z);
+	
+	const float Frequencies[]{ 0.1, 0.2, 0.4, 0.8, 0.16 };
+	const float Amplitudes[]{ 1, 0.5f, 0.25f, 0.125f, 0.0625f };
+
+	float AmpTotal = 0;
+	for (uint8 i = 0; i <= 5; ++i)
+		AmpTotal += Amplitudes[i];
 	
 	for (uint8 X = 0; X < BlockCount.X; ++X)
 	{
@@ -98,29 +123,23 @@ void AChunk::Rebuild(const FVector2DInt& PlayerIndex)
 			for (uint8 Z = 0; Z < BlockCount.Z; ++Z)
 			{
 				float Noise = 0;
-				const float Frequencies[]{ 0.1, 0.2, 0.4, 0.8, 0.16 };
-				const float Amplitudes[]{ 1, 0.5f, 0.25f, 0.125f, 0.0625f };
-				const auto Position = GetActorLocation();
 				for (uint8 i = 0; i <= 5; ++i)
 				{
-					const auto NoiseResult = FMath::PerlinNoise2D(FVector2D(
-						(Frequencies[i] * Position.X + .3f),
-						(Frequencies[i] * Position.Y + .3f)
-					));
-					
-					const auto NoiseNormalized = (NoiseResult + 1) / 2; // TODO Frequency and amplitude for correct normalization
-					const auto NoiseAmplified = NoiseNormalized * Amplitudes[i];
-					
-					Noise += NoiseAmplified;
+					Noise += FMath::PerlinNoise2D(FVector2D(
+							(Frequencies[i] * WorldIndex.X + X + static_cast<float>(X) + .3f),
+							(Frequencies[i] * WorldIndex.Y + Y + static_cast<float>(Y) + .3f)
+						)) * Amplitudes[i];
 				}
-				Noise -=.5f;
+				Noise = (Noise + 1 * AmpTotal) / (2 * AmpTotal);
+				//Noise -=.5f;
 				const auto HeightNoise = Noise * BlockCount.Z;
 				
 				//Blocks.Add(FVectorByte(X,Y,Z), { Z == 0 ? EBlockType::Stone : EBlockType::Air});
 				//Blocks.Add(FVectorByte(X,Y,Z), { Z > HeightNoise ? EBlockType::Air : EBlockType::Stone});
 
-				UE_LOG(LogTemp, Warning, TEXT("%f"), Noise);
-				if (Noise >= .7f)
+				//UE_LOG(LogTemp, Warning, TEXT("%f"), Noise);
+				
+				if (Z >= HeightNoise)
 					Blocks.Add(FVectorByte(X,Y,Z), { EBlockType::Air});
 				else
 				{

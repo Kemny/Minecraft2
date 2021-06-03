@@ -9,6 +9,6 @@ public class MC2ElectricBoogalooTarget : TargetRules
 	{
 		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.AddRange(new string[] {"MC2ElectricBoogaloo", "ComputeShaders"});
+		ExtraModuleNames.AddRange(new string[] {"MC2ElectricBoogaloo"});
 	}
 }

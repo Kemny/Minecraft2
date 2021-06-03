@@ -60,10 +60,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	int32 ChunkRenderDistance = 4;
 	
-	// Flattened array. Index is relative to player
+	// Index is relative to player
 	UPROPERTY()
 	TMap<FVector2DInt, AChunk*> Chunks;
 
 	UPROPERTY()
 	FVector2DInt LastPlayerIndex;
+
+	UPROPERTY(VisibleAnywhere)
+	AChunk* C1;
+	UPROPERTY(VisibleAnywhere)
+	AChunk* C2;
 };

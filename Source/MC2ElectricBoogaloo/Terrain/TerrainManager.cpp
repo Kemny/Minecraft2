@@ -19,7 +19,7 @@ void ATerrainManager::BeginPlay()
 			auto Spawned = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
 			
 			FVector2DInt Index{X,Y};
-			Spawned->InitializeVariables(this, Index);
+			Spawned->InitializeVariables(this, {X,Y});
 			Chunks.Add(Index, Spawned);
 		}
 	}
@@ -51,9 +51,81 @@ void ATerrainManager::Tick(float DeltaTime)
 
 	if (PlayerIndex != LastPlayerIndex)
 	{
-		for (const auto & Chunk : Chunks)
-			Chunk.Value->Rebuild(PlayerIndex);
+		// TODO Clean up Implementation
+		const auto XMax = PlayerIndex.X + ChunkRenderDistance;
+		const auto XMin = PlayerIndex.X - ChunkRenderDistance;
 		
+		const auto YMax = PlayerIndex.Y + ChunkRenderDistance;
+		const auto YMin = PlayerIndex.Y - ChunkRenderDistance;
+
+		TArray<AChunk*> ObsoleteChunks;
+		for (auto & Chunk : Chunks)
+		{
+			const auto& WP = Chunk.Value->GetWorldPosition();
+			if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
+			{
+				ObsoleteChunks.Emplace(Chunk.Value);
+			}
+		}
+
+		for (const auto & ObsoleteChunk : ObsoleteChunks)
+			Chunks.Remove(ObsoleteChunk->GetWorldPosition());
+		
+		for (int32 X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
+		{
+			for (int32 Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
+			{
+				const FVector2DInt Index{X + PlayerIndex.X,Y + PlayerIndex.Y};
+				if (!Chunks.Contains(Index))
+				{
+					const auto ChunkNum = ObsoleteChunks.Num();
+					if (ChunkNum == 0)
+					{
+						UE_LOG(LogTemp, Error, TEXT("Failed to Deque a Chunk for position: [%i, %i]"), X, Y);
+						continue;
+					}
+					AChunk* Chunk = ObsoleteChunks[ChunkNum - 1];
+					ObsoleteChunks.RemoveAt(ChunkNum - 1);
+					
+					Chunks.Add(Index, Chunk);
+					Chunk->Rebuild(Index);
+				}
+			}
+		}
+
+		/*
+		const auto XMax = PlayerIndex.X;
+		const auto XMin = PlayerIndex.X;
+		
+		const auto YMax = PlayerIndex.Y + 1;
+		const auto YMin = PlayerIndex.Y;
+		
+		if (!C1)
+		{
+			C1 = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
+			C1->InitializeVariables(this, PlayerIndex);
+			
+			C2 = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
+			C2->InitializeVariables(this, PlayerIndex + FVector2DInt{0,1});
+		}
+		else
+		{
+			{
+				const auto& WP = C1->GetWorldPosition();
+				if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
+				{
+					C1->Rebuild(PlayerIndex, {0,0});
+				}
+			}
+			{
+				const auto& WP = C2->GetWorldPosition();
+				if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
+				{
+					C2->Rebuild(PlayerIndex, {0,1});
+				}
+			}
+		}
+		*/
 		LastPlayerIndex = PlayerIndex;
 	}
 }
