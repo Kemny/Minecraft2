@@ -35,6 +35,10 @@ struct FMeshInfo
 	}
 };
 
+DECLARE_DYNAMIC_DELEGATE_TwoParams(FChunkUpdateDelegateInternal, const FMeshInfo&, MeshInfo, const TArray<FVector2DInt>&, MissingChunkDirections);
+DECLARE_DYNAMIC_DELEGATE_TwoParams(FChunkEdgeUpdateDelegate, const FVector2DInt&, Index, const TArray<FVector2DInt>&, Directions);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FChunkUpdateDelegale, const FVector2DInt&, Index);
+
 UCLASS()
 class MC2ELECTRICBOOGALOO_API AChunk : public AActor
 {
@@ -42,12 +46,19 @@ class MC2ELECTRICBOOGALOO_API AChunk : public AActor
 	
 public:	
 	AChunk();
+	
 	UFUNCTION()
 	void InitializeVariables(ATerrainManager* NewParent);
 
+	UPROPERTY()
+	FChunkUpdateDelegale OnUpdated;
+	UPROPERTY()
+	FChunkEdgeUpdateDelegate OnEdgeUpdated;
+	
 protected:
 	UPROPERTY()
 	ATerrainManager* Parent;
+	
 	UPROPERTY(VisibleAnywhere)
 	FVector2DInt WorldIndex;
 	
@@ -60,9 +71,28 @@ protected:
 
 	UPROPERTY()
 	FMeshInfo MeshInfo;
+
+	UPROPERTY()
+	bool bIsDirty = false;
+
+	UPROPERTY()
+	TArray<FVector2DInt> MissingChunkDirections;
+	
+	FThreadSafeBool bCancelThread;
+	FThreadSafeBool bIsThreadRunning;
+
+	UFUNCTION()
+	void OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FVector2DInt>& MissingDirections);
+	
 public:
 	UFUNCTION()
-	FVector2DInt GetWorldPosition() const { return WorldIndex; }
+	void GetMissingChunkDirections(TArray<FVector2DInt>& Indexes) const { Indexes = MissingChunkDirections; }
+	
+	UFUNCTION()
+	bool IsReady() const { return bIsThreadRunning; }
+	
+	UFUNCTION()
+	FVector2DInt GetWorldIndex() const { return WorldIndex; }
 	UFUNCTION()
 	bool HasBlock(const FVectorByte& BlockIndex) const { return Blocks.Contains(BlockIndex); }
 	UFUNCTION()
@@ -96,9 +126,6 @@ public:
 	FVector GetBlockLocalPosition(const FVectorByte& BlockIndex) const;
 	UFUNCTION()
 	FVector GetBlockWorldPosition(const FVectorByte& BlockIndex) const;
-	
-	UFUNCTION()
-	void AddPlane(const EBlockDirection& Direction, const EBlockType& BlockType, const FVectorByte BlockIndex);
 
 	UFUNCTION()
 	void RebuildBlocks(const FVector2DInt& Index);
@@ -111,4 +138,7 @@ public:
 	void RemoveBlock(const FVectorByte& BlockIndex);
 	UFUNCTION()
 	void AddBlock(const FVectorByte& BlockIndex, const EBlockType Type);
+
+	UFUNCTION()
+	bool IsBlockEdge(const FVectorByte& BlockIndex, TArray<FVector2DInt>& EdgeDirections) const;
 };

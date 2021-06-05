@@ -29,7 +29,8 @@ class MC2ELECTRICBOOGALOO_API ATerrainManager : public AActor
 {
 	GENERATED_BODY()
 
-public:	
+public:
+	
 	ATerrainManager();
 	UFUNCTION(BlueprintCallable)
 	void CreateTerrain();
@@ -61,7 +62,7 @@ public:
 	}
 
 	UFUNCTION()
-	EBlockType GetChunkBlockType(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex);
+	bool GetBlockSafe(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex, FBlock& Block) const;
 
 	UFUNCTION(BlueprintPure)
 	FVector2DInt WorldLocationToChunkIndex(const FVector& WorldLocation) const
@@ -100,12 +101,11 @@ protected:
 	// Index is relative to player
 	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	TMap<FVector2DInt, AChunk*> Chunks;
+	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
+	TArray<AChunk*> ObsoleteChunks;
 
 	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	FVector2DInt LastPlayerIndex;
-
-	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
-	TMap<FVector2DInt, FChunkUpdateWaiters> ChunkUpdateListeners;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	USceneComponent* Root;
@@ -115,6 +115,11 @@ protected:
 	
 	UPROPERTY()
 	AMinecraftPlayerController* PC;
+
+	UFUNCTION()
+	void UpdateChunks(const FVector& PlayerPosition);
+	UFUNCTION()
+	void UpdatePlayer(const float& DeltaTime);
 
 	UFUNCTION()
 	void PlaceBlockAtPlayerSelection();
@@ -131,4 +136,14 @@ protected:
 	void StartBreakingBlocksAtPlayerSelection();
 	UFUNCTION()
 	void StopBreakingBlocksAtPlayerSelection();
+
+	UPROPERTY()
+	int32 CreatedChunkCount;
+	
+	UFUNCTION()
+	void OnChunkCreated(const FVector2DInt& UpdatedIndex);
+	UFUNCTION()
+	void OnChunkUpdated(const FVector2DInt& UpdatedIndex);
+	UFUNCTION()
+	void OnChunkEdgeUpdated(const FVector2DInt& UpdatedIndex, const TArray<FVector2DInt>& Directions);
 };

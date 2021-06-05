@@ -4,15 +4,251 @@
 #include "TerrainManager.h"
 #include "ProceduralMeshComponent.h"
 
-const FVectorByte BackRightBottom(0,1,0);
-const FVectorByte BackLeftBottom(0,0,0);
-const FVectorByte FrontRightBottom(1,1,0);
-const FVectorByte FrontLeftBottom(1,0,0);
+namespace BuildTask
+{
+	const FVectorByte BackRightBottom(0,1,0);
+	const FVectorByte BackLeftBottom(0,0,0);
+	const FVectorByte FrontRightBottom(1,1,0);
+	const FVectorByte FrontLeftBottom(1,0,0);
 
-const FVectorByte BackRightTop(0,1,1);
-const FVectorByte BackLeftTop(0,0,1);
-const FVectorByte FrontRightTop(1,1,1);
-const FVectorByte FrontLeftTop(1,0,1);
+	const FVectorByte BackRightTop(0,1,1);
+	const FVectorByte BackLeftTop(0,0,1);
+	const FVectorByte FrontRightTop(1,1,1);
+	const FVectorByte FrontLeftTop(1,0,1);
+
+	static void AddPlane(FMeshInfo& MeshInfo, const EBlockDirection& Direction, const FLinearColor& Color, const FVectorByte& BlockIndex, const AChunk* const Chunk)
+	{
+		FVector Normal;
+		FVector V1;
+		FVector V2;
+		FVector V3;
+		FVector V4;
+		
+		switch (Direction)
+		{
+		case EBlockDirection::Up:
+			Normal = FVector::UpVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftTop);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftTop);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightTop);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightTop);
+			break;
+		case EBlockDirection::Down:
+			Normal = FVector::DownVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftBottom);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightBottom);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightBottom);
+			break;
+		case EBlockDirection::Left:
+			Normal = FVector::LeftVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftBottom);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftTop);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftTop);
+			break;
+		case EBlockDirection::Right:
+			Normal = FVector::RightVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightBottom);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightBottom);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightTop);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightTop);
+			break;
+		case EBlockDirection::Front:
+			Normal = FVector::ForwardVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightBottom);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + FrontLeftTop);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + FrontRightTop);
+			break;
+		case EBlockDirection::Back:
+			Normal = FVector::BackwardVector;
+			V1 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftBottom);
+			V2 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightBottom);
+			V3 = Chunk->GetBlockLocalPosition(BlockIndex + BackRightTop);
+			V4 = Chunk->GetBlockLocalPosition(BlockIndex + BackLeftTop);
+			break;
+		}
+
+		const auto T1 = MeshInfo.Triangles.Add(0);
+		const auto T2 = MeshInfo.Triangles.Add(1);
+		const auto T3 = MeshInfo.Triangles.Add(2);
+		const auto T4 = MeshInfo.Triangles.Add(0);
+		const auto T5 = MeshInfo.Triangles.Add(2);
+		const auto T6 = MeshInfo.Triangles.Add(3);
+		
+		int32 Index;
+		
+		if (!MeshInfo.Vertices.Find(V1, Index))
+		{
+			Index = MeshInfo.Vertices.Add(V1);
+			MeshInfo.Normals.Add(Normal);
+			MeshInfo.VertexColors.Add(Color);
+		}
+		MeshInfo.Triangles[T1] = Index;
+		MeshInfo.Triangles[T4] = Index;
+		
+		if (!MeshInfo.Vertices.Find(V2, Index))
+		{
+			Index = MeshInfo.Vertices.Add(V2);
+			MeshInfo.Normals.Add(Normal);
+			MeshInfo.VertexColors.Add(Color);
+		}
+		MeshInfo.Triangles[T2] = Index;
+		
+		if (!MeshInfo.Vertices.Find(V3, Index))
+		{
+			Index = MeshInfo.Vertices.Add(V3);
+			MeshInfo.Normals.Add(Normal);
+			MeshInfo.VertexColors.Add(Color);
+		}
+		MeshInfo.Triangles[T3] = Index;
+		MeshInfo.Triangles[T5] = Index;
+		
+		if (!MeshInfo.Vertices.Find(V4, Index))
+		{
+			Index = MeshInfo.Vertices.Add(V4);
+			MeshInfo.Normals.Add(Normal);
+			MeshInfo.VertexColors.Add(Color);
+		}
+		MeshInfo.Triangles[T6] = Index;
+	}
+	static void RebuildGeometry(FThreadSafeBool& bCancelThread, const AChunk* const Chunk, const ATerrainManager* const Parent, const TMap<FVectorByte, FBlock>& Blocks, const FVectorByte& BlockCount, const FVector2DInt& WorldIndex, FChunkUpdateDelegateInternal Callback)
+	{
+		AsyncTask(ENamedThreads::AnyThread, [bCancelThread, Chunk, Parent, Blocks, BlockCount, WorldIndex, Callback]()
+		{
+			TArray<FVector2DInt> MissingDirections;
+			FMeshInfo MeshInfo;
+			for (const auto & Block : Blocks)
+			{
+				if (bCancelThread)
+					break;
+				
+				if (Block.Value.Type == EBlockType::Air)
+					continue;
+
+				const auto& Index = Block.Key;
+				const auto& Type = Block.Value.Type;
+
+				FVectorByte AdjacentIndex;
+				bool bAdjacentTransparent;
+				// Up
+				{
+					AdjacentIndex = Index +  FVectorByte(0,0,1);
+					if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type) || !Blocks.Contains(AdjacentIndex))
+						AddPlane(MeshInfo, EBlockDirection::Up, Parent->GetTypeColor(Type), Index, Chunk);
+				}
+				// Down
+				{
+					if (Index.Z != 0)
+					{
+						AdjacentIndex = Index + FVectorByte(0,0,-1);
+						if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type))
+							AddPlane(MeshInfo, EBlockDirection::Down, Parent->GetTypeColor(Type), Index, Chunk);
+					}
+				}
+				// Right
+				{
+					AdjacentIndex = Index + FVectorByte(0,1,0);
+					if (Blocks.Contains(AdjacentIndex))
+						bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
+					else
+					{
+						FBlock FoundBlock;
+						const FVector2DInt ChunkDirection{0,1};
+						const FVectorByte BlockIndex(AdjacentIndex.X, 0, AdjacentIndex.Z);
+						
+						if (Parent->GetBlockSafe(WorldIndex + ChunkDirection, BlockIndex, FoundBlock))
+							bAdjacentTransparent = UBlockData::IsBlockTransparent(FoundBlock.Type);
+						else
+						{
+							bAdjacentTransparent = false;
+							MissingDirections.AddUnique(ChunkDirection);
+						}
+						
+					}
+					if (bAdjacentTransparent)
+						AddPlane(MeshInfo, EBlockDirection::Right, Parent->GetTypeColor(Type), Index, Chunk);
+				}
+				// Left
+				{
+					if (Index.Y != 0)
+					{
+						AdjacentIndex = Index + FVectorByte(0,-1,0);
+						bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
+					}
+					else
+					{
+						FBlock FoundBlock;
+						const FVector2DInt ChunkDirection{0,-1};
+						const FVectorByte BlockIndex(AdjacentIndex.X, BlockCount.Y - 1, AdjacentIndex.Z);
+						
+						if (Parent->GetBlockSafe(WorldIndex + ChunkDirection, BlockIndex, FoundBlock))
+							bAdjacentTransparent = UBlockData::IsBlockTransparent(FoundBlock.Type);
+						else
+						{
+							bAdjacentTransparent = false;
+							MissingDirections.AddUnique(ChunkDirection);
+						}
+					}
+					
+					if (bAdjacentTransparent)
+						AddPlane(MeshInfo, EBlockDirection::Left, Parent->GetTypeColor(Type), Index, Chunk);
+				}
+				// Front
+				{
+					AdjacentIndex = Index + FVectorByte(1,0,0);
+					if (Blocks.Contains(AdjacentIndex))
+						bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
+					else
+					{
+						FBlock FoundBlock;
+						const FVector2DInt ChunkDirection{1,0};
+						const FVectorByte BlockIndex(0, AdjacentIndex.Y, AdjacentIndex.Z);
+
+						if (Parent->GetBlockSafe(WorldIndex + ChunkDirection, BlockIndex, FoundBlock))
+							bAdjacentTransparent = UBlockData::IsBlockTransparent(FoundBlock.Type);
+						else
+						{
+							bAdjacentTransparent = false;
+							MissingDirections.AddUnique(ChunkDirection);
+						}
+					}
+					if (bAdjacentTransparent)
+						AddPlane(MeshInfo, EBlockDirection::Front, Parent->GetTypeColor(Type), Index, Chunk);
+				}
+				// Back
+				{
+					if (Index.X != 0)
+					{
+						AdjacentIndex = Index + FVectorByte(-1,0,0);
+						bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
+					}
+					else
+					{
+						
+						FBlock FoundBlock;
+						const FVector2DInt ChunkDirection{-1,0};
+						const FVectorByte BlockIndex(BlockCount.X - 1, AdjacentIndex.Y, AdjacentIndex.Z);
+
+						if (Parent->GetBlockSafe(WorldIndex + ChunkDirection, BlockIndex, FoundBlock))
+							bAdjacentTransparent = UBlockData::IsBlockTransparent(FoundBlock.Type);
+						else
+						{
+							bAdjacentTransparent = false;
+							MissingDirections.AddUnique(ChunkDirection);
+						}
+					}
+					
+					if (bAdjacentTransparent)
+						AddPlane(MeshInfo, EBlockDirection::Back, Parent->GetTypeColor(Type), Index, Chunk);
+				}
+			}
+			// ReSharper disable once CppExpressionWithoutSideEffects
+			Callback.ExecuteIfBound(MeshInfo, MissingDirections);
+		});
+	}
+}
 
 AChunk::AChunk()
 {
@@ -27,135 +263,21 @@ AChunk::AChunk()
 void AChunk::InitializeVariables(ATerrainManager* NewParent)
 {
 	Parent = NewParent;
-	if (!Parent)
-		return;
-	
 	const auto& BlockCount = Parent->GetBlockCount();
+	
+	MissingChunkDirections.Reserve(4);
 	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
-}
-
-void AChunk::AddPlane(const EBlockDirection& Direction, const EBlockType& BlockType, const FVectorByte BlockIndex)
-{
-	if (!Parent)
-		return;
-
-	FVector Normal;
-	FVector V1;
-	FVector V2;
-	FVector V3;
-	FVector V4;
-	
-	switch (Direction)
-	{
-	case EBlockDirection::Up:
-		Normal = FVector::UpVector;
-		V1 = GetBlockLocalPosition(BlockIndex + FrontLeftTop);
-		V2 = GetBlockLocalPosition(BlockIndex + BackLeftTop);
-		V3 = GetBlockLocalPosition(BlockIndex + BackRightTop);
-		V4 = GetBlockLocalPosition(BlockIndex + FrontRightTop);
-		break;
-	case EBlockDirection::Down:
-		Normal = FVector::DownVector;
-		V1 = GetBlockLocalPosition(BlockIndex + BackLeftBottom);
-		V2 = GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
-		V3 = GetBlockLocalPosition(BlockIndex + FrontRightBottom);
-		V4 = GetBlockLocalPosition(BlockIndex + BackRightBottom);
-		break;
-	case EBlockDirection::Left:
-		Normal = FVector::LeftVector;
-		V1 = GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
-		V2 = GetBlockLocalPosition(BlockIndex + BackLeftBottom);
-		V3 = GetBlockLocalPosition(BlockIndex + BackLeftTop);
-		V4 = GetBlockLocalPosition(BlockIndex + FrontLeftTop);
-		break;
-	case EBlockDirection::Right:
-		Normal = FVector::RightVector;
-		V1 = GetBlockLocalPosition(BlockIndex + BackRightBottom);
-		V2 = GetBlockLocalPosition(BlockIndex + FrontRightBottom);
-		V3 = GetBlockLocalPosition(BlockIndex + FrontRightTop);
-		V4 = GetBlockLocalPosition(BlockIndex + BackRightTop);
-		break;
-	case EBlockDirection::Front:
-		Normal = FVector::ForwardVector;
-		V1 = GetBlockLocalPosition(BlockIndex + FrontRightBottom);
-		V2 = GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
-		V3 = GetBlockLocalPosition(BlockIndex + FrontLeftTop);
-		V4 = GetBlockLocalPosition(BlockIndex + FrontRightTop);
-		break;
-	case EBlockDirection::Back:
-		Normal = FVector::BackwardVector;
-		V1 = GetBlockLocalPosition(BlockIndex + BackLeftBottom);
-		V2 = GetBlockLocalPosition(BlockIndex + BackRightBottom);
-		V3 = GetBlockLocalPosition(BlockIndex + BackRightTop);
-		V4 = GetBlockLocalPosition(BlockIndex + BackLeftTop);
-		break;
-	}
-
-	const auto& Color = Parent->GetTypeColor(BlockType);
-
-	const auto T1 = MeshInfo.Triangles.Add(0);
-	const auto T2 = MeshInfo.Triangles.Add(1);
-	const auto T3 = MeshInfo.Triangles.Add(2);
-	const auto T4 = MeshInfo.Triangles.Add(0);
-	const auto T5 = MeshInfo.Triangles.Add(2);
-	const auto T6 = MeshInfo.Triangles.Add(3);
-	
-	int32 Index;
-	
-	if (!MeshInfo.Vertices.Find(V1, Index))
-	{
-		Index = MeshInfo.Vertices.Add(V1);
-		MeshInfo.Normals.Add(Normal);
-		MeshInfo.VertexColors.Add(Color);
-	}
-	MeshInfo.Triangles[T1] = Index;
-	MeshInfo.Triangles[T4] = Index;
-	
-	if (!MeshInfo.Vertices.Find(V2, Index))
-	{
-		Index = MeshInfo.Vertices.Add(V2);
-		MeshInfo.Normals.Add(Normal);
-		MeshInfo.VertexColors.Add(Color);
-	}
-	MeshInfo.Triangles[T2] = Index;
-	
-	if (!MeshInfo.Vertices.Find(V3, Index))
-	{
-		Index = MeshInfo.Vertices.Add(V3);
-		MeshInfo.Normals.Add(Normal);
-		MeshInfo.VertexColors.Add(Color);
-	}
-	MeshInfo.Triangles[T3] = Index;
-	MeshInfo.Triangles[T5] = Index;
-	
-	if (!MeshInfo.Vertices.Find(V4, Index))
-	{
-		Index = MeshInfo.Vertices.Add(V4);
-		MeshInfo.Normals.Add(Normal);
-		MeshInfo.VertexColors.Add(Color);
-	}
-	MeshInfo.Triangles[T6] = Index;
 }
 
 void AChunk::RebuildBlocks(const FVector2DInt& Index)
 {
 	WorldIndex = Index;
 	
-	if (!Parent)
-		return;
-	
 	const auto& BlockSize = Parent->GetBlockSize();
 	const auto& BlockCount = Parent->GetBlockCount();
 	const auto& NoiseDamper = Parent->GetNoiseDamper();
 	const auto& NoisePersistence = Parent->GetNoisePersistence();
 	const auto& NoiseOctaves = Parent->GetNoiseOctaves();
-	
-	const auto NewPosition = FVector(
-		WorldIndex.X * BlockSize * BlockCount.X,
-		WorldIndex.Y * BlockSize * BlockCount.Y,
-		0);
-	
-	SetActorLocation(NewPosition);
 
 	TArray<FBlockSpawnInfo> Heights;
 	Parent->GetBlockHeights(Heights);
@@ -192,6 +314,7 @@ void AChunk::RebuildBlocks(const FVector2DInt& Index)
 				Scale *= NoisePersistence;
 				TotalAmplitude += Amplitude;
 
+				// TODO Seed Randomness
 				Noise += Amplitude * FMath::PerlinNoise2D(Scale * ScaledPos);
 			}
 
@@ -208,7 +331,7 @@ void AChunk::RebuildBlocks(const FVector2DInt& Index)
 				{
 					for (const auto & BlockHeight : Heights)
 					{
-						if (BlockHeight.SpawnStopHeight > HeightNoise)
+						if (BlockHeight.SpawnStopHeight > Z)
 						{
 							Blocks.Add(FVectorByte(X,Y,Z), {BlockHeight.Type});
 							break;
@@ -221,135 +344,65 @@ void AChunk::RebuildBlocks(const FVector2DInt& Index)
 }
 void AChunk::RebuildGeometry()
 {
-	MeshInfo.Clear();
-	
-	const auto& BlockCount = Parent->GetBlockCount();
-	
-	for (const auto & Block : Blocks)
+	static FChunkUpdateDelegateInternal OnRebuiltInternal;
+
+	if (bCancelThread)
 	{
-		if (Block.Value.Type == EBlockType::Air)
-			continue;
-
-		const auto& Index = Block.Key;
-		const auto& Type = Block.Value.Type;
-
-		FVectorByte AdjacentIndex;
-		bool bAdjacentTransparent;
-		// Up
-		{
-			AdjacentIndex = Index +  FVectorByte(0,0,1);
-			if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type) || !Blocks.Contains(AdjacentIndex))
-				AddPlane(EBlockDirection::Up, Type, Index);
-		}
-		// Down
-		{
-			if (Index.Z != 0)
-			{
-				AdjacentIndex = Index + FVectorByte(0,0,-1);
-				if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type))
-					AddPlane(EBlockDirection::Down, Type, Index);
-			}
-		}
-		// Right
-		{
-			AdjacentIndex = Index + FVectorByte(0,1,0);
-			if (Blocks.Contains(AdjacentIndex))
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
-			else
-			{
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(
-					Parent->GetChunkBlockType(WorldIndex + FVector2DInt{0,1},
-					FVectorByte(AdjacentIndex.X, 0, AdjacentIndex.Z)
-					)
-				);
-			}
-			if (bAdjacentTransparent)
-				AddPlane(EBlockDirection::Right, Type, Index);
-		}
-		// Left
-		{
-			if (Index.Y != 0)
-			{
-				AdjacentIndex = Index + FVectorByte(0,-1,0);
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
-			}
-			else
-			{
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(
-					Parent->GetChunkBlockType(WorldIndex + FVector2DInt{0,-1},
-					FVectorByte(AdjacentIndex.X, BlockCount.Y - 1, AdjacentIndex.Z)
-					)
-				);
-			}
-			
-			if (bAdjacentTransparent)
-				AddPlane(EBlockDirection::Left, Type, Index);
-		}
-		// Front
-		{
-			AdjacentIndex = Index + FVectorByte(1,0,0);
-			if (Blocks.Contains(AdjacentIndex))
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
-			else
-			{
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(
-					Parent->GetChunkBlockType(WorldIndex + FVector2DInt{1,0},
-					FVectorByte(0, AdjacentIndex.Y, AdjacentIndex.Z)
-					)
-				);
-			}
-			if (bAdjacentTransparent)
-				AddPlane(EBlockDirection::Front, Type, Index);
-		}
-		// Back
-		{
-			if (Index.X != 0)
-			{
-				AdjacentIndex = Index + FVectorByte(-1,0,0);
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type);
-			}
-			else
-			{
-				bAdjacentTransparent = UBlockData::IsBlockTransparent(
-					Parent->GetChunkBlockType(WorldIndex + FVector2DInt{-1,0},
-					FVectorByte(BlockCount.X - 1, AdjacentIndex.Y, AdjacentIndex.Z)
-					)
-				);
-			}
-			
-			if (bAdjacentTransparent)
-				AddPlane(EBlockDirection::Back, Type, Index);
-		}
+		bCancelThread = false;
+		return;
 	}
-	//TODO One section per direction, don't reuse between sections to keep propper normals
-	//TODO Create One, Then Update
-	//TODO Array of Builders per direction 
-	Mesh->CreateMeshSection_LinearColor(
-		0,
-		MeshInfo.Vertices,
-		MeshInfo.Triangles,
-		MeshInfo.Normals,
-		TArray<FVector2D>(),
-		MeshInfo.VertexColors,
-		TArray<FProcMeshTangent>(),
-		true
-	);
+	bIsThreadRunning = true;
+	
+	OnRebuiltInternal.BindDynamic(this, &AChunk::OnBuildThreadFinished);
+	const auto& BlockCount = Parent->GetBlockCount();
+	BuildTask::RebuildGeometry(bCancelThread, this, Parent, Blocks, BlockCount, WorldIndex, OnRebuiltInternal);
+}
+
+void AChunk::OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FVector2DInt>& MissingDirections)
+{
+	AsyncTask(ENamedThreads::GameThread, [NewMeshInfo, MissingDirections, this]()
+	{
+		if (bCancelThread)
+		{
+			bCancelThread = false;
+			RebuildGeometry();
+			return;
+		}
+
+		bIsThreadRunning = false;
+
+		MissingChunkDirections = MissingDirections;
+		MeshInfo = NewMeshInfo;
+		
+		//TODO One section per direction, don't reuse between sections to keep proper normals
+		//TODO Create One, Then Update
+		//TODO Array of Builders per direction
+		//TODO Greedy Meshing
+			Mesh->CreateMeshSection_LinearColor(
+			0,
+			MeshInfo.Vertices,
+			MeshInfo.Triangles,
+			MeshInfo.Normals,
+			TArray<FVector2D>(),
+			MeshInfo.VertexColors,
+			TArray<FProcMeshTangent>(),
+			true
+		);
+
+		OnUpdated.Broadcast(WorldIndex);
+	});
 }
 
 void AChunk::Rebuild(const FVector2DInt& Index)
 {
-	if (!Parent)
-		return;
-
+	bIsDirty = false;
+	
 	RebuildBlocks(Index);
 	RebuildGeometry();
 }
 
 void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
 {
-	if (!Parent)
-		return;
-	
 	if (Blocks.Contains(BlockIndex))
 	{
 		const auto& Data = Parent->GetBlocksData();
@@ -359,17 +412,21 @@ void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
 		{
 			Blocks[BlockIndex].Type = EBlockType::Air;
 
-			// TODO Don't rebuild everything
 			RebuildGeometry();
+
+			// TODO Save System
+			bIsDirty = true;
+
+			TArray<FVector2DInt> Directions;
+			if (IsBlockEdge(BlockIndex, Directions))
+			{
+				OnEdgeUpdated.ExecuteIfBound(WorldIndex, Directions);
+			}
 		}
 	}
 }
-
 void AChunk::AddBlock(const FVectorByte& BlockIndex, const EBlockType Type)
 {
-	if (!Parent)
-		return;
-	
 	if (Blocks.Contains(BlockIndex))
 	{
 		const auto& OldType = Blocks[BlockIndex].Type;
@@ -377,31 +434,51 @@ void AChunk::AddBlock(const FVectorByte& BlockIndex, const EBlockType Type)
 		{
 			Blocks[BlockIndex].Type = Type;
 
-			// TODO Don't rebuild everything
 			RebuildGeometry();
+			
+			bIsDirty = true;
+
+			TArray<FVector2DInt> Directions;
+			if (IsBlockEdge(BlockIndex, Directions))
+			{
+				OnEdgeUpdated.ExecuteIfBound(WorldIndex, Directions);
+			}
 		}
 	}
 }
 
+bool AChunk::IsBlockEdge(const FVectorByte& BlockIndex, TArray<FVector2DInt>& EdgeDirections) const
+{
+	const auto& BlockCount = Parent->GetBlockCount();
+	if (BlockIndex.X == 0)
+		EdgeDirections.Add({-1, 0});
+	
+	if (BlockIndex.X == BlockCount.X - 1)
+		EdgeDirections.Add({1, 0});
+	
+	if (BlockIndex.Y == 0)
+		EdgeDirections.Add({0, -1});
+	
+	if (BlockIndex.Y == BlockCount.Y - 1)
+		EdgeDirections.Add({0, 1});
+	
+	return EdgeDirections.Num() > 0;
+}
+
 FVector AChunk::GetBlockLocalPosition(const FVectorByte& BlockIndex) const
 {
-	if (!Parent)
-		return {};
-
 	const auto& BlockSize = Parent->GetBlockSize();
 	return FVector(BlockIndex.X * BlockSize, BlockIndex.Y * BlockSize, BlockIndex.Z * BlockSize);
 }
 
 FVector AChunk::GetBlockWorldPosition(const FVectorByte& BlockIndex) const
 {
-	if (!Parent)
-		return {};
-
 	const auto& BlockSize = Parent->GetBlockSize();
-	const auto& Location = GetActorLocation();
+	const auto& BlockCount = Parent->GetBlockCount();
+
 	return FVector(
-		Location.X + BlockIndex.X * BlockSize, 
-		Location.Y + BlockIndex.Y * BlockSize, 
-		Location.Z + BlockIndex.Z * BlockSize
+		WorldIndex.X * BlockSize * BlockCount.X + BlockIndex.X * BlockSize, 
+		WorldIndex.Y * BlockSize * BlockCount.Y + BlockIndex.Y * BlockSize, 
+		BlockIndex.Z * BlockSize
 	);
 }
