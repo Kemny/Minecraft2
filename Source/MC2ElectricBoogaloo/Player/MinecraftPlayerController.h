@@ -9,6 +9,8 @@
 
 #include "MinecraftPlayerController.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FPlayerActionDelegate);
+
 UENUM(BlueprintType)
 enum class EPlayerState : uint8
 {
@@ -17,12 +19,41 @@ enum class EPlayerState : uint8
 	PlaceBlock = 2
 };
 
+USTRUCT()
+struct FSelectedPosition
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FVector Position;
+	
+	UPROPERTY()
+	FVector Normal;
+};
+
 UCLASS()
 class MC2ELECTRICBOOGALOO_API AMinecraftPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
+public:
+	UFUNCTION()
+	FSelectedPosition GetSelectedPosition() const { return SelectedPosition; }
+
+	UPROPERTY(BlueprintCallable)
+	FPlayerActionDelegate OnPlaceBlockRequest;
+	UPROPERTY(BlueprintCallable)
+	FPlayerActionDelegate OnStartMining;
+	UPROPERTY(BlueprintCallable)
+	FPlayerActionDelegate OnStopMining;
+
+	UFUNCTION()
+	EPlayerState GetCurrentState() const { return CurrentState; }
+
+	UFUNCTION()
+	EBlockType GetSelectedBlock() const { return SelectedBlock; }
 protected:
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	float TraceRange = 1000;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
 	EPlayerState CurrentState;
@@ -30,6 +61,8 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
 	EBlockType SelectedBlock = EBlockType::Dirt;
 
+	UPROPERTY()
+	FSelectedPosition SelectedPosition;
+
 	virtual void Tick(float DeltaSeconds) override;
-	
 };

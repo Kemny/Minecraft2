@@ -28,7 +28,7 @@ void AChunk::InitializeVariables(ATerrainManager* NewParent)
 {
 	Parent = NewParent;
 	if (!Parent)
-		return;;
+		return;
 	
 	const auto& BlockCount = Parent->GetBlockCount();
 	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
@@ -59,7 +59,7 @@ void AChunk::AddPlane(const EBlockDirection& Direction, const EBlockType& BlockT
 		V1 = GetBlockLocalPosition(BlockIndex + BackLeftBottom);
 		V2 = GetBlockLocalPosition(BlockIndex + FrontLeftBottom);
 		V3 = GetBlockLocalPosition(BlockIndex + FrontRightBottom);
-		V4 = GetBlockLocalPosition(BlockIndex + FrontRightBottom);
+		V4 = GetBlockLocalPosition(BlockIndex + BackRightBottom);
 		break;
 	case EBlockDirection::Left:
 		Normal = FVector::LeftVector;
@@ -343,6 +343,44 @@ void AChunk::Rebuild(const FVector2DInt& Index)
 
 	RebuildBlocks(Index);
 	RebuildGeometry();
+}
+
+void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
+{
+	if (!Parent)
+		return;
+	
+	if (Blocks.Contains(BlockIndex))
+	{
+		const auto& Data = Parent->GetBlocksData();
+		const auto& Type = Blocks[BlockIndex].Type;
+
+		if (Data->Blocks.Contains(Type) && Data->Blocks[Type].bIsBreakable)
+		{
+			Blocks[BlockIndex].Type = EBlockType::Air;
+
+			// TODO Don't rebuild everything
+			RebuildGeometry();
+		}
+	}
+}
+
+void AChunk::AddBlock(const FVectorByte& BlockIndex, const EBlockType Type)
+{
+	if (!Parent)
+		return;
+	
+	if (Blocks.Contains(BlockIndex))
+	{
+		const auto& OldType = Blocks[BlockIndex].Type;
+		if (OldType == EBlockType::Air)
+		{
+			Blocks[BlockIndex].Type = Type;
+
+			// TODO Don't rebuild everything
+			RebuildGeometry();
+		}
+	}
 }
 
 FVector AChunk::GetBlockLocalPosition(const FVectorByte& BlockIndex) const

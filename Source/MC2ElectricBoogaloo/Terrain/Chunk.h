@@ -76,6 +76,23 @@ public:
 		return false;
 	}
 	UFUNCTION()
+	bool GetBlockTypeSafe(const FVectorByte& BlockIndex, EBlockType& OutBlockType)
+	{
+		if (Blocks.Contains(BlockIndex))
+		{
+			OutBlockType = Blocks[BlockIndex].Type;
+			return true;
+		}
+		return false;
+	}
+	
+	UFUNCTION()
+	bool ContainsBlock(const FVectorByte& BlockIndex) const
+	{
+		return Blocks.Contains(BlockIndex);
+	}
+	
+	UFUNCTION()
 	FVector GetBlockLocalPosition(const FVectorByte& BlockIndex) const;
 	UFUNCTION()
 	FVector GetBlockWorldPosition(const FVectorByte& BlockIndex) const;
@@ -89,4 +106,9 @@ public:
 	void RebuildGeometry();
 	UFUNCTION()
 	void Rebuild(const FVector2DInt& Index);
+
+	UFUNCTION()
+	void RemoveBlock(const FVectorByte& BlockIndex);
+	UFUNCTION()
+	void AddBlock(const FVectorByte& BlockIndex, const EBlockType Type);
 };

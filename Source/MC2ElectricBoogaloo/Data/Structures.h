@@ -109,6 +109,10 @@ public:
 	{
 		return X == Other.X && Y == Other.Y && Z == Other.Z;
 	}
+	bool operator!=(const FVectorByte& Other) const
+	{
+		return X != Other.X || Y != Other.Y || Z != Other.Z;
+	}
 	bool Equals(const FVectorByte& Other) const
 	{
 		return X == Other.X && Y == Other.Y && Z == Other.Z;

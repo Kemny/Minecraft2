@@ -2,14 +2,37 @@
 
 #include "Chunk.h"
 #include "Kismet/GameplayStatics.h"
+#include "MC2ElectricBoogaloo/Player/MinecraftPlayerController.h"
 
 ATerrainManager::ATerrainManager()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	if (!Root)
+		return;
+	
+	SetRootComponent(Root);
+	
+	HighlightCube = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HighlightCube"));
+	if (!HighlightCube)
+		return;
+	
+	HighlightCube->SetupAttachment(Root);
 }
 
 void ATerrainManager::CreateTerrain()
 {
+	PC = GetWorld()->GetFirstPlayerController<AMinecraftPlayerController>();
+	PC->OnPlaceBlockRequest.AddUniqueDynamic(this, &ATerrainManager::PlaceBlockAtPlayerSelection);
+	PC->OnStartMining.AddUniqueDynamic(this, &ATerrainManager::StartBreakingBlocksAtPlayerSelection);
+	PC->OnStopMining.AddUniqueDynamic(this, &ATerrainManager::StopBreakingBlocksAtPlayerSelection);
+	
+	if (!PC || !HighlightCube)
+		return;
+	
+	HighlightCube->SetWorldScale3D(FVector(BlockSize * 0.011));
+	
 	for (int X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
 	{
 		for (int Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
@@ -22,6 +45,8 @@ void ATerrainManager::CreateTerrain()
 			Chunks.Add(Index, Spawned);
 		}
 	}
+	
+	OnNewTerrainGenerated.Broadcast();
 }
 
 EBlockType ATerrainManager::GetChunkBlockType(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex)
@@ -34,6 +59,48 @@ EBlockType ATerrainManager::GetChunkBlockType(const FVector2DInt& ChunkIndex, co
 	return EBlockType::End;
 }
 
+void ATerrainManager::PlaceBlockAtPlayerSelection()
+{
+	// TODO Clean up all everything related to pc
+	
+	if (!PC)
+		return;
+
+	const auto& SelectedPosition = PC->GetSelectedPosition();
+	const FVector BaseBlockVector(
+		FMath::FloorToInt((SelectedPosition.Position.X + SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
+		FMath::FloorToInt((SelectedPosition.Position.Y + SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
+		FMath::FloorToInt((SelectedPosition.Position.Z + SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
+	);
+	
+	const auto& BaseIndexX = static_cast<int32>(BaseBlockVector.X) % BlockCount.X;
+	const auto& BaseIndexY = static_cast<int32>(BaseBlockVector.Y) % BlockCount.Y;
+	const auto& BaseIndexZ = static_cast<int32>(BaseBlockVector.Z) % BlockCount.Z;
+			
+	const FVectorByte CurrentBlockIndex(
+		(BaseIndexX >= 0 ? BaseIndexX : BaseIndexX + BlockCount.X),
+		(BaseIndexY >= 0 ? BaseIndexY : BaseIndexY + BlockCount.Y),
+		BaseIndexZ
+	);
+
+	const auto& ChunkIndex = WorldLocationToChunkIndex(SelectedPosition.Position);
+	if (Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->ContainsBlock(CurrentBlockIndex))
+	{
+		Chunks[ChunkIndex]->AddBlock(CurrentBlockIndex, PC->GetSelectedBlock());
+	}
+}
+
+void ATerrainManager::StartBreakingBlocksAtPlayerSelection()
+{
+	MiningTime = 0;
+	bPlayerIsMining = true;
+}
+
+void ATerrainManager::StopBreakingBlocksAtPlayerSelection()
+{
+	bPlayerIsMining = false;
+}
+
 void ATerrainManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -43,8 +110,6 @@ void ATerrainManager::Tick(float DeltaTime)
 	if (!World)
 		return;
 	
-	// Player Controller and pawn aren't cached to allow simple destruction. Can be changed for performance
-	const auto PC = UGameplayStatics::GetPlayerController(World, 0);
 	if (!PC)
 		return;
 	
@@ -55,7 +120,7 @@ void ATerrainManager::Tick(float DeltaTime)
 	const auto& PlayerPosition = Pawn->GetActorLocation();
 
 	// Auto Clamped to int
-	const FVector2DInt& PlayerIndex{FMath::FloorToInt(PlayerPosition.X / (BlockSize * BlockCount.X)), FMath::FloorToInt(PlayerPosition.Y / (BlockSize * BlockCount.Y))};
+	const FVector2DInt& PlayerIndex = WorldLocationToChunkIndex(PlayerPosition);
 
 	if (PlayerIndex != LastPlayerIndex)
 	{
@@ -113,6 +178,68 @@ void ATerrainManager::Tick(float DeltaTime)
 		}
 
 		LastPlayerIndex = PlayerIndex;
+	}
+
+	if (PC->GetCurrentState() == EPlayerState::Pickaxe)
+	{
+		const auto& SelectedPosition = PC->GetSelectedPosition();
+		const FVector BaseBlockVector(
+			FMath::FloorToInt((SelectedPosition.Position.X - SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
+			FMath::FloorToInt((SelectedPosition.Position.Y - SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
+			FMath::FloorToInt((SelectedPosition.Position.Z - SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
+		);
+		HighlightCube->SetWorldLocation(BaseBlockVector * BlockSize);
+
+		if (bPlayerIsMining)
+		{
+			MiningTime += DeltaTime;
+
+			
+
+			const auto& BaseIndexX = static_cast<int32>(BaseBlockVector.X) % BlockCount.X;
+			const auto& BaseIndexY = static_cast<int32>(BaseBlockVector.Y) % BlockCount.Y;
+			const auto& BaseIndexZ = static_cast<int32>(BaseBlockVector.Z) % BlockCount.Z;
+			
+			const FVectorByte CurrentBlockIndex(
+				(BaseIndexX >= 0 ? BaseIndexX : BaseIndexX + BlockCount.X),
+				(BaseIndexY >= 0 ? BaseIndexY : BaseIndexY + BlockCount.Y),
+				BaseIndexZ
+			);
+			
+			if (CurrentBlockIndex != MiningBlockIndex)
+			{
+				MiningTime = 0;
+				MiningBlockIndex = CurrentBlockIndex;
+			}
+			
+			const auto& ChunkIndex = WorldLocationToChunkIndex(SelectedPosition.Position);
+			EBlockType BlockType;
+			// Block Exists
+			if (Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->GetBlockTypeSafe(MiningBlockIndex, BlockType))
+			{
+				const auto& Data = BlocksData->Blocks[BlockType];
+				if (Data.bIsBreakable && Data.BreakTime <= MiningTime)
+				{
+					MiningTime = 0;
+					Chunks[ChunkIndex]->RemoveBlock(MiningBlockIndex);
+				}
+			}
+			
+		}
+	}
+	else if (PC->GetCurrentState() == EPlayerState::PlaceBlock)
+	{
+		const auto& SelectedPosition = PC->GetSelectedPosition();
+		const FVector BaseBlockVector(
+			FMath::FloorToInt((SelectedPosition.Position.X + SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
+			FMath::FloorToInt((SelectedPosition.Position.Y + SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
+			FMath::FloorToInt((SelectedPosition.Position.Z + SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
+		);
+		HighlightCube->SetWorldLocation(BaseBlockVector * BlockSize);
+	}
+	else
+	{
+		HighlightCube->SetWorldLocation({0,0,-100});
 	}
 }
 

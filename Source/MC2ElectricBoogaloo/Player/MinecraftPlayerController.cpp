@@ -1,19 +1,38 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "MinecraftPlayerController.h"
+#include "MinecraftCharacter.h"
+#include "Camera/CameraComponent.h"
 
 void AMinecraftPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
 	const auto World = GetWorld();
-	if (!World)
+	const auto TargetPawn = Cast<AMinecraftCharacter>(GetPawn());
+	if (!World || !TargetPawn)
+		return;
+	
+	const auto TargetCamera = TargetPawn->GetCamera();
+	
+	if (!TargetCamera)
 		return;
 
+	//const FName TraceTag("MyTraceTag");
+	//World->DebugDrawTraceTag = TraceTag;
+	
 	FHitResult Hit;
-	if (World->LineTraceSingleByObjectType(Hit, GetPawn()->GetActorLocation(), GetPawn()->GetActorForwardVector() * 1000,  ECC_GameTraceChannel1))
+	FCollisionQueryParams Params;
+	//Params.TraceTag = TraceTag;
+	Params.bTraceComplex = true;
+	
+	if (World->LineTraceSingleByObjectType(Hit, TargetCamera->GetComponentLocation(), TargetCamera->GetComponentLocation() + TargetCamera->GetForwardVector() * TraceRange,  ECC_GameTraceChannel1, Params))
 	{
-		UE_LOG(LogTemp, Log, TEXT("{%f} [%f,%f,%f]"), Hit.Distance, Hit.ImpactPoint.X, Hit.ImpactPoint.Y, Hit.ImpactPoint.Z)
-		//Hit.ImpactNormal
+		SelectedPosition.Position = Hit.ImpactPoint;
+		SelectedPosition.Normal = Hit.ImpactNormal;
+	}
+	else
+	{
+		SelectedPosition.Position = {0,0,-100};
 	}
 }

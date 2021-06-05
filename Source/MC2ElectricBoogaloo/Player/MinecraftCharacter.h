@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "MinecraftCharacter.generated.h"
 
+class UCameraComponent;
 UCLASS()
 class MC2ELECTRICBOOGALOO_API AMinecraftCharacter : public ACharacter
 {
@@ -15,6 +16,8 @@ public:
 	AMinecraftCharacter();
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
+	UFUNCTION(BlueprintCallable)
+	UCameraComponent* GetCamera() const { return FirstPersonCameraComponent; }
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FirstPersonCameraComponent;

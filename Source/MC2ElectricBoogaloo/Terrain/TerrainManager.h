@@ -3,13 +3,17 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 
-#include "MC2ElectricBoogaloo/Data/BlockData.h"
+#include "MC2ElectricBoogaloo/Data/BlocksDataAsset.h"
 
 #include "TerrainManager.generated.h"
 
 #define INDEX(x,y,SizeY) x * SizeY + y
 
+class AMinecraftPlayerController;
 class AChunk;
+class UBlocksDataAsset;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FTerrainDelegate);
 
 USTRUCT()
 struct FChunkUpdateWaiters
@@ -27,6 +31,8 @@ class MC2ELECTRICBOOGALOO_API ATerrainManager : public AActor
 
 public:	
 	ATerrainManager();
+	UFUNCTION(BlueprintCallable)
+	void CreateTerrain();
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION()
@@ -35,6 +41,8 @@ public:
 	float GetNoiseDamper() const { return NoiseDamper; }
 	UFUNCTION()
 	uint8 GetNoiseOctaves() const { return NoiseOctaves; }
+	UFUNCTION()
+	UBlocksDataAsset* GetBlocksData() const { return BlocksData; }
 
 	UFUNCTION()
 	int32 GetBlockSize() const { return BlockSize; }
@@ -46,17 +54,26 @@ public:
 	UFUNCTION()
 	FLinearColor GetTypeColor(const EBlockType& Type) const
 	{
-		if (BlockColors.Contains(Type))
-			return BlockColors[Type];
-		
-		return {};
+		if (!BlocksData || !BlocksData->Blocks.Contains(Type))
+			return {};
+
+		return BlocksData->Blocks[Type].Color;
 	}
-	
-	UFUNCTION(BlueprintCallable)
-	void CreateTerrain();
 
 	UFUNCTION()
 	EBlockType GetChunkBlockType(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex);
+
+	UFUNCTION(BlueprintPure)
+	FVector2DInt WorldLocationToChunkIndex(const FVector& WorldLocation) const
+	{
+		return FVector2DInt{
+			FMath::FloorToInt(WorldLocation.X / (BlockSize * BlockCount.X)),
+			FMath::FloorToInt(WorldLocation.Y / (BlockSize * BlockCount.Y))
+		};
+	}
+
+	UPROPERTY(BlueprintAssignable)
+	FTerrainDelegate OnNewTerrainGenerated;
 	
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
@@ -67,7 +84,7 @@ protected:
 	float NoisePersistence;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blocks")
-	TMap<EBlockType, FLinearColor> BlockColors;
+	UBlocksDataAsset* BlocksData;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blocks")
 	TArray<FBlockSpawnInfo> BlockHeights;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blocks")
@@ -81,12 +98,37 @@ protected:
 	int32 ChunkRenderDistance = 4;
 	
 	// Index is relative to player
-	UPROPERTY(VisibleAnywhere, Category = "Chunks")
+	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	TMap<FVector2DInt, AChunk*> Chunks;
 
-	UPROPERTY(VisibleAnywhere, Category = "Chunks")
+	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	FVector2DInt LastPlayerIndex;
 
-	UPROPERTY(VisibleAnywhere, Category = "Chunks")
+	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	TMap<FVector2DInt, FChunkUpdateWaiters> ChunkUpdateListeners;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	USceneComponent* Root;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UStaticMeshComponent* HighlightCube;
+	
+	UPROPERTY()
+	AMinecraftPlayerController* PC;
+
+	UFUNCTION()
+	void PlaceBlockAtPlayerSelection();
+
+	// Could be on the PC as well, but since it only interacts with this actor anyway, there is no need.
+	UPROPERTY()
+	bool bPlayerIsMining; 
+	UPROPERTY()
+	float MiningTime;
+	UPROPERTY()
+	FVectorByte MiningBlockIndex;
+	
+	UFUNCTION()
+	void StartBreakingBlocksAtPlayerSelection();
+	UFUNCTION()
+	void StopBreakingBlocksAtPlayerSelection();
 };
