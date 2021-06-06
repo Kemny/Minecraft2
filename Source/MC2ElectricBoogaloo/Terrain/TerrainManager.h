@@ -30,7 +30,6 @@ class MC2ELECTRICBOOGALOO_API ATerrainManager : public AActor
 	GENERATED_BODY()
 
 public:
-	
 	ATerrainManager();
 	UFUNCTION(BlueprintCallable)
 	void CreateTerrain(AMinecraftPlayerController* Player, const FString& SaveName, FTerrainDelegate OnGenerated);

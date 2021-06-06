@@ -35,7 +35,7 @@ struct FMeshInfo
 	}
 };
 
-DECLARE_DYNAMIC_DELEGATE_TwoParams(FChunkUpdateDelegateInternal, const FMeshInfo&, MeshInfo, const TArray<FVector2DInt>&, MissingChunkDirections);
+DECLARE_DYNAMIC_DELEGATE_TwoParams(FChunkUpdateDelegateInternal, const TArray<FMeshInfo>&, MeshInfos, const TArray<FVector2DInt>&, MissingChunkDirections);
 DECLARE_DYNAMIC_DELEGATE_TwoParams(FChunkEdgeUpdateDelegate, const FVector2DInt&, Index, const TArray<FVector2DInt>&, Directions);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FChunkUpdateDelegale, const FVector2DInt&, Index);
 
@@ -65,12 +65,16 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UProceduralMeshComponent* Mesh;
 	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UMaterialInterface* Material;
+	
 	// TODO Merge X and Y into 1 array
 	UPROPERTY()
 	TMap<FVectorByte, FBlock> Blocks;
 
+	// One Per Direction
 	UPROPERTY()
-	FMeshInfo MeshInfo;
+	TArray<FMeshInfo> MeshInfos;
 
 	UPROPERTY()
 	bool bIsDirty = false;
@@ -82,7 +86,7 @@ protected:
 	FThreadSafeBool bIsThreadRunning;
 
 	UFUNCTION()
-	void OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FVector2DInt>& MissingDirections);
+	void OnBuildThreadFinished(const TArray<FMeshInfo>& NewMeshInfos, const TArray<FVector2DInt>& MissingDirections);
 	
 public:
 	UFUNCTION()

@@ -204,6 +204,7 @@ void ATerrainManager::Tick(float DeltaTime)
 
 void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 {
+	// TODO Save Chunks on exit
 	const FVector2DInt& PlayerIndex = WorldLocationToChunkIndex(PlayerPosition);
 
 	if (PlayerIndex != LastPlayerIndex)

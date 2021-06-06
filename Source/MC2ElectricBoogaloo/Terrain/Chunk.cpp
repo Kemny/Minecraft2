@@ -119,7 +119,11 @@ namespace BuildTask
 		AsyncTask(ENamedThreads::AnyThread, [bCancelThread, Chunk, Parent, Blocks, BlockCount, WorldIndex, Callback]()
 		{
 			TArray<FVector2DInt> MissingDirections;
-			FMeshInfo MeshInfo;
+
+			// Not using the old one for easy thread safety
+			TArray<FMeshInfo> MeshInfos;
+			MeshInfos.Init({}, 3);
+			
 			for (const auto & Block : Blocks)
 			{
 				if (bCancelThread)
@@ -137,7 +141,7 @@ namespace BuildTask
 				{
 					AdjacentIndex = Index +  FVectorByte(0,0,1);
 					if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type) || !Blocks.Contains(AdjacentIndex))
-						AddPlane(MeshInfo, EBlockDirection::Up, Parent->GetTypeColor(Type), Index, Chunk);
+						AddPlane(MeshInfos[0], EBlockDirection::Up, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 				// Down
 				{
@@ -145,7 +149,7 @@ namespace BuildTask
 					{
 						AdjacentIndex = Index + FVectorByte(0,0,-1);
 						if (Blocks.Contains(AdjacentIndex) && UBlockData::IsBlockTransparent(Blocks[AdjacentIndex].Type))
-							AddPlane(MeshInfo, EBlockDirection::Down, Parent->GetTypeColor(Type), Index, Chunk);
+							AddPlane(MeshInfos[0], EBlockDirection::Down, Parent->GetTypeColor(Type), Index, Chunk);
 					}
 				}
 				// Right
@@ -169,7 +173,7 @@ namespace BuildTask
 						
 					}
 					if (bAdjacentTransparent)
-						AddPlane(MeshInfo, EBlockDirection::Right, Parent->GetTypeColor(Type), Index, Chunk);
+						AddPlane(MeshInfos[1], EBlockDirection::Right, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 				// Left
 				{
@@ -194,7 +198,7 @@ namespace BuildTask
 					}
 					
 					if (bAdjacentTransparent)
-						AddPlane(MeshInfo, EBlockDirection::Left, Parent->GetTypeColor(Type), Index, Chunk);
+						AddPlane(MeshInfos[1], EBlockDirection::Left, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 				// Front
 				{
@@ -216,7 +220,7 @@ namespace BuildTask
 						}
 					}
 					if (bAdjacentTransparent)
-						AddPlane(MeshInfo, EBlockDirection::Front, Parent->GetTypeColor(Type), Index, Chunk);
+						AddPlane(MeshInfos[2], EBlockDirection::Front, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 				// Back
 				{
@@ -242,12 +246,13 @@ namespace BuildTask
 					}
 					
 					if (bAdjacentTransparent)
-						AddPlane(MeshInfo, EBlockDirection::Back, Parent->GetTypeColor(Type), Index, Chunk);
+						AddPlane(MeshInfos[2], EBlockDirection::Back, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 			}
 			// ReSharper disable once CppExpressionWithoutSideEffects
-			Callback.ExecuteIfBound(MeshInfo, MissingDirections);
+			Callback.ExecuteIfBound(MeshInfos, MissingDirections);
 		});
+		
 	}
 }
 
@@ -265,6 +270,9 @@ void AChunk::InitializeVariables(ATerrainManager* NewParent)
 {
 	Parent = NewParent;
 	const auto& BlockCount = Parent->GetBlockCount();
+
+	for (uint8 i = 0; i < 3; ++i)
+		Mesh->SetMaterial(i, Material);
 	
 	MissingChunkDirections.Reserve(4);
 	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
@@ -322,10 +330,9 @@ void AChunk::BuildBlocks(const FVector2DInt& Index)
 				Scale *= NoisePersistence;
 				TotalAmplitude += Amplitude;
 
-				// TODO Seed Randomness
-
+				// TODO Check Weights for Seed
 				const auto NoisePos = Scale * ScaledPos;
-				Noise += Amplitude * FMath::PerlinNoise3D( FVector(NoisePos.X, NoisePos.Y, Parent->GetWorldSeed()));
+				Noise += Amplitude * FMath::PerlinNoise3D(FVector(NoisePos.X, NoisePos.Y, Parent->GetWorldSeed()));
 			}
 
 			Noise /= TotalAmplitude;
@@ -368,9 +375,9 @@ void AChunk::RebuildGeometry()
 	BuildTask::RebuildGeometry(bCancelThread, this, Parent, Blocks, BlockCount, WorldIndex, OnRebuiltInternal);
 }
 
-void AChunk::OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FVector2DInt>& MissingDirections)
+void AChunk::OnBuildThreadFinished(const TArray<FMeshInfo>& NewMeshInfos, const TArray<FVector2DInt>& MissingDirections)
 {
-	AsyncTask(ENamedThreads::GameThread, [NewMeshInfo, MissingDirections, this]()
+	AsyncTask(ENamedThreads::GameThread, [NewMeshInfos, MissingDirections, this]()
 	{
 		if (bCancelThread)
 		{
@@ -382,22 +389,24 @@ void AChunk::OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FV
 		bIsThreadRunning = false;
 
 		MissingChunkDirections = MissingDirections;
-		MeshInfo = NewMeshInfo;
+		MeshInfos = NewMeshInfos;
 		
-		//TODO One section per direction, don't reuse between sections to keep proper normals
-		//TODO Create One, Then Update
-		//TODO Array of Builders per direction
 		//TODO Greedy Meshing
+
+		for (uint8 i = 0; i < MeshInfos.Num(); ++i)
+		{
+			const auto & MeshInfo = MeshInfos[i];
 			Mesh->CreateMeshSection_LinearColor(
-			0,
-			MeshInfo.Vertices,
-			MeshInfo.Triangles,
-			MeshInfo.Normals,
-			TArray<FVector2D>(),
-			MeshInfo.VertexColors,
-			TArray<FProcMeshTangent>(),
-			true
-		);
+				i,
+				MeshInfo.Vertices,
+				MeshInfo.Triangles,
+				MeshInfo.Normals,
+				TArray<FVector2D>(),
+				MeshInfo.VertexColors,
+				TArray<FProcMeshTangent>(),
+				true
+			);
+		}
 
 		OnUpdated.Broadcast(WorldIndex);
 	});
@@ -416,7 +425,6 @@ void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
 
 			RebuildGeometry();
 
-			// TODO Save System
 			bIsDirty = true;
 
 			TArray<FVector2DInt> Directions;
