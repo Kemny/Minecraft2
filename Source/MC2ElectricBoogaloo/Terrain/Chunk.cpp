@@ -3,6 +3,7 @@
 #include "Chunk.h"
 #include "TerrainManager.h"
 #include "ProceduralMeshComponent.h"
+#include "MC2ElectricBoogaloo/Data/ChunkSaveGame.h"
 
 namespace BuildTask
 {
@@ -269,9 +270,13 @@ void AChunk::InitializeVariables(ATerrainManager* NewParent)
 	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
 }
 
-void AChunk::RebuildBlocks(const FVector2DInt& Index)
+void AChunk::BuildBlocks(const FVector2DInt& Index)
 {
+	if (bIsDirty)
+		UChunkSaveGame::SaveChunk(Parent->GetWorldName(), WorldIndex, Blocks);
+
 	WorldIndex = Index;
+	bIsDirty = false;
 	
 	const auto& BlockSize = Parent->GetBlockSize();
 	const auto& BlockCount = Parent->GetBlockCount();
@@ -287,6 +292,9 @@ void AChunk::RebuildBlocks(const FVector2DInt& Index)
 	
 	Blocks.Empty(BlockCount.X * BlockCount.Y * BlockCount.Z);
 
+	if (UChunkSaveGame::TryToLoadChunk(Parent->GetWorldName(), WorldIndex, Blocks))
+		return;
+	
 	for (uint8 X = 0; X < BlockCount.X; ++X)
 	{
 		for (uint8 Y = 0; Y < BlockCount.Y; ++Y)
@@ -315,7 +323,9 @@ void AChunk::RebuildBlocks(const FVector2DInt& Index)
 				TotalAmplitude += Amplitude;
 
 				// TODO Seed Randomness
-				Noise += Amplitude * FMath::PerlinNoise2D(Scale * ScaledPos);
+
+				const auto NoisePos = Scale * ScaledPos;
+				Noise += Amplitude * FMath::PerlinNoise3D( FVector(NoisePos.X, NoisePos.Y, Parent->GetWorldSeed()));
 			}
 
 			Noise /= TotalAmplitude;
@@ -391,14 +401,6 @@ void AChunk::OnBuildThreadFinished(const FMeshInfo& NewMeshInfo, const TArray<FV
 
 		OnUpdated.Broadcast(WorldIndex);
 	});
-}
-
-void AChunk::Rebuild(const FVector2DInt& Index)
-{
-	bIsDirty = false;
-	
-	RebuildBlocks(Index);
-	RebuildGeometry();
 }
 
 void AChunk::RemoveBlock(const FVectorByte& BlockIndex)

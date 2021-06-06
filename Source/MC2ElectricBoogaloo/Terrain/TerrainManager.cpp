@@ -2,6 +2,7 @@
 
 #include "Chunk.h"
 #include "Kismet/GameplayStatics.h"
+#include "MC2ElectricBoogaloo/Data/WorldSaveGame.h"
 #include "MC2ElectricBoogaloo/Player/MinecraftPlayerController.h"
 
 
@@ -22,18 +23,22 @@ ATerrainManager::ATerrainManager()
 	HighlightCube->SetupAttachment(Root);
 }
 
-void ATerrainManager::CreateTerrain()
+void ATerrainManager::CreateTerrain(AMinecraftPlayerController* Player, const FString& SaveName, FTerrainDelegate OnGenerated)
 {
-	PC = GetWorld()->GetFirstPlayerController<AMinecraftPlayerController>();
+	PC = Player;
+	WorldName = SaveName;
+	OnTerrainGenerated = OnGenerated;
 	
 	if (!PC || !HighlightCube)
+		return;
+
+	if (!UWorldSaveGame::TryToLoadWorld(WorldName, Seed))
 		return;
 	
 	PC->OnPlaceBlockRequest.AddUniqueDynamic(this, &ATerrainManager::PlaceBlockAtPlayerSelection);
 	PC->OnStartMining.AddUniqueDynamic(this, &ATerrainManager::StartBreakingBlocksAtPlayerSelection);
 	PC->OnStopMining.AddUniqueDynamic(this, &ATerrainManager::StopBreakingBlocksAtPlayerSelection);
-	
-	
+
 	HighlightCube->SetWorldScale3D(FVector(BlockSize * 0.011));
 	CreatedChunkCount = 0;
 
@@ -49,7 +54,7 @@ void ATerrainManager::CreateTerrain()
 			Spawned->OnUpdated.AddUniqueDynamic(this, &ATerrainManager::OnChunkCreated);
 			Spawned->OnUpdated.AddUniqueDynamic(this, &ATerrainManager::OnChunkUpdated);
 			Spawned->OnEdgeUpdated.BindDynamic(this, &ATerrainManager::OnChunkEdgeUpdated);
-			Spawned->RebuildBlocks(Index);
+			Spawned->BuildBlocks(Index);
 
 			const auto NewPosition = FVector(
 				X * BlockSize * BlockCount.X,
@@ -118,7 +123,6 @@ void ATerrainManager::PlaceBlockAtPlayerSelection()
 		Params
 	);
 	
-	// TODO Player Collision
 	if (!HitPlayer && Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->ContainsBlock(CurrentBlockIndex))
 	{
 		Chunks[ChunkIndex]->AddBlock(CurrentBlockIndex, PC->GetSelectedBlock());
@@ -142,11 +146,19 @@ void ATerrainManager::OnChunkCreated(const FVector2DInt& UpdatedIndex)
 	Chunks[UpdatedIndex]->OnUpdated.RemoveDynamic(this, &ATerrainManager::OnChunkCreated);
 	
 	if (CreatedChunkCount == Chunks.Num())
-		OnNewTerrainGenerated.Broadcast();
+		OnTerrainGenerated.ExecuteIfBound();
 }
 
 void ATerrainManager::OnChunkUpdated(const FVector2DInt& UpdatedIndex)
 {
+	const auto NewPosition = FVector(
+				UpdatedIndex.X * BlockSize * BlockCount.X,
+				UpdatedIndex.Y * BlockSize * BlockCount.Y,
+				0
+			);
+	
+	Chunks[UpdatedIndex]->SetActorLocation(NewPosition);
+	
 	for (const auto & Chunk : Chunks)
 	{
 		TArray<FVector2DInt> Directions;
@@ -196,7 +208,6 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 
 	if (PlayerIndex != LastPlayerIndex)
 	{
-		// TODO Clean up Implementation
 		const auto XMax = PlayerIndex.X + ChunkRenderDistance;
 		const auto XMin = PlayerIndex.X - ChunkRenderDistance;
 		
@@ -219,7 +230,6 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 		}
 
 		int32 ObsoleteChunkIndex = 0;
-		// TODO Chunk Creation Events for correct Blocks
 		// Generate Block Data
 		for (int32 X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
 		{
@@ -238,7 +248,7 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 					ObsoleteChunkIndex++;
 					
 					Chunks.Add(Index, Chunk);
-					Chunk->RebuildBlocks(Index);
+					Chunk->BuildBlocks(Index);
 				}
 			}
 		}
@@ -246,14 +256,6 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 		for (const auto & ObsoleteChunk : ObsoleteChunks)
 		{
 			ObsoleteChunk->RebuildGeometry();
-			
-			const auto NewPosition = FVector(
-				ObsoleteChunk->GetWorldIndex().X * BlockSize * BlockCount.X,
-				ObsoleteChunk->GetWorldIndex().Y * BlockSize * BlockCount.Y,
-				0
-			);
-	
-			ObsoleteChunk->SetActorLocation(NewPosition);
 		}
 		ObsoleteChunks.Empty();
 

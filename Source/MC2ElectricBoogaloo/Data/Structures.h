@@ -42,6 +42,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 Y;
 
+	FString ToString() const
+	{
+		return FString::FromInt(X) + "," + FString::FromInt(Y);
+	}
+
+	static FVector2DInt FromString(const FString& String)
+	{
+		FString SX;
+		FString SY;
+		String.Split(",", &SX, &SY);
+		return FVector2DInt{FCString::Atoi(*SX), FCString::Atoi(*SY)};
+	}
+	
 	bool operator==(const FVector2DInt& Other) const
 	{
 		return X == Other.X && Y == Other.Y;

@@ -13,7 +13,7 @@ class AMinecraftPlayerController;
 class AChunk;
 class UBlocksDataAsset;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FTerrainDelegate);
+DECLARE_DYNAMIC_DELEGATE(FTerrainDelegate);
 
 USTRUCT()
 struct FChunkUpdateWaiters
@@ -33,7 +33,11 @@ public:
 	
 	ATerrainManager();
 	UFUNCTION(BlueprintCallable)
-	void CreateTerrain();
+	void CreateTerrain(AMinecraftPlayerController* Player, const FString& SaveName, FTerrainDelegate OnGenerated);
+
+	UPROPERTY()
+	FTerrainDelegate OnTerrainGenerated;
+	
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION()
@@ -51,6 +55,12 @@ public:
 	FVectorByte GetBlockCount() const { return BlockCount; }
 	UFUNCTION()
 	void GetBlockHeights(TArray<FBlockSpawnInfo>& OutHeights) const { OutHeights = BlockHeights; }
+	
+	UFUNCTION()
+	FString GetWorldName() const { return WorldName; }
+
+	UFUNCTION()
+	float GetWorldSeed() const { return Seed; }
 
 	UFUNCTION()
 	FLinearColor GetTypeColor(const EBlockType& Type) const
@@ -73,9 +83,6 @@ public:
 		};
 	}
 
-	UPROPERTY(BlueprintAssignable)
-	FTerrainDelegate OnNewTerrainGenerated;
-	
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float NoiseDamper;
@@ -106,6 +113,11 @@ protected:
 
 	UPROPERTY(VisibleInstanceOnly, Category = "Chunks")
 	FVector2DInt LastPlayerIndex;
+	UPROPERTY(EditAnywhere, Category = "Chunks")
+	FString WorldName;
+	UPROPERTY(EditAnywhere, Category = "Chunks")
+	float Seed;
+	
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	USceneComponent* Root;

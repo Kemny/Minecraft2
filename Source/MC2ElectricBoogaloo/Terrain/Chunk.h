@@ -128,11 +128,9 @@ public:
 	FVector GetBlockWorldPosition(const FVectorByte& BlockIndex) const;
 
 	UFUNCTION()
-	void RebuildBlocks(const FVector2DInt& Index);
+	void BuildBlocks(const FVector2DInt& Index);
 	UFUNCTION()
 	void RebuildGeometry();
-	UFUNCTION()
-	void Rebuild(const FVector2DInt& Index);
 
 	UFUNCTION()
 	void RemoveBlock(const FVectorByte& BlockIndex);
