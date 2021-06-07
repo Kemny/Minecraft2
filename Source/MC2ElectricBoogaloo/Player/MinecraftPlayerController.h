@@ -35,7 +35,10 @@ UCLASS()
 class MC2ELECTRICBOOGALOO_API AMinecraftPlayerController : public APlayerController
 {
 	GENERATED_BODY()
+	
 public:
+	AMinecraftPlayerController();
+	
 	UFUNCTION()
 	FSelectedPosition GetSelectedPosition() const { return SelectedPosition; }
 
@@ -51,7 +54,33 @@ public:
 
 	UFUNCTION()
 	EBlockType GetSelectedBlock() const { return SelectedBlock; }
+
+	UFUNCTION(BlueprintPure)
+	bool IsMining() const { return bIsMining; }
+
+	UFUNCTION()
+	FVectorByte GetCurrentMiningBlock() const { return CurrentMiningBlock; }
+
+	UFUNCTION()
+	void SetCurrentMiningBlock(const FVectorByte& BlockIndex);
+
+	UFUNCTION(BlueprintCallable)
+	void UpdateMiningTime(const float& DeltaTime);
+	UFUNCTION(BlueprintCallable)
+	void ResetMiningTime();
+	UFUNCTION(BlueprintCallable)
+	float GetMiningTime() const { return MiningTime; }
+	
 protected:
+	UPROPERTY()
+	FVectorByte CurrentMiningBlock;
+	
+	UPROPERTY()
+	bool bIsMining;
+
+	UPROPERTY()
+	float MiningTime;
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	float TraceRange = 1000;
 	
@@ -65,4 +94,10 @@ protected:
 	FSelectedPosition SelectedPosition;
 
 	virtual void Tick(float DeltaSeconds) override;
+
+	UFUNCTION()
+	void OnStartMiningFunction();
+	
+	UFUNCTION()
+	void OnStopMiningFunction();
 };

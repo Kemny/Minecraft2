@@ -5,6 +5,37 @@
 #include "MC2ElectricBoogaloo/Data/WorldSaveGame.h"
 #include "MC2ElectricBoogaloo/Player/MinecraftPlayerController.h"
 
+FVector ATerrainManager::ClampPlayerSelection(const FVector& SelectedPosition, const FVector& SelectedNormal, bool bSubtractNormal) const
+{
+	const float NormalMultiplier = (bSubtractNormal ? -1.f : 1.f) * (static_cast<float>(BlockSize) / 2);
+	return FVector(
+		FMath::FloorToInt((SelectedPosition.X + NormalMultiplier * SelectedNormal.X) / BlockSize),
+		FMath::FloorToInt((SelectedPosition.Y + NormalMultiplier * SelectedNormal.Y) / BlockSize),
+		FMath::FloorToInt((SelectedPosition.Z + NormalMultiplier * SelectedNormal.Z) / BlockSize)
+	);
+}
+
+FVectorByte ATerrainManager::ClampedWorldLocationToBlockIndex(const FVector& Position) const
+{
+	const auto& BaseIndexX = static_cast<int32>(Position.X) % BlockCount.X;
+	const auto& BaseIndexY = static_cast<int32>(Position.Y) % BlockCount.Y;
+	const auto& BaseIndexZ = static_cast<int32>(Position.Z) % BlockCount.Z;
+	
+	return FVectorByte(
+		BaseIndexX >= 0 ? BaseIndexX : BaseIndexX + BlockCount.X,
+		BaseIndexY >= 0 ? BaseIndexY : BaseIndexY + BlockCount.Y,
+		BaseIndexZ
+	);
+}
+
+FVector ATerrainManager::ChunkIndexToWorldLocation(const FVector2DInt& ChunkIndex) const
+{
+	return FVector(
+		ChunkIndex.X * BlockSize * BlockCount.X,
+		ChunkIndex.Y * BlockSize * BlockCount.Y,
+		0
+	);
+}
 
 ATerrainManager::ATerrainManager()
 {
@@ -32,14 +63,20 @@ void ATerrainManager::CreateTerrain(AMinecraftPlayerController* Player, const FS
 	if (!PC || !HighlightCube)
 		return;
 
-	if (!UWorldSaveGame::TryToLoadWorld(WorldName, Seed))
+	// Save is created in the menu, at this point there should be one
+	if (!UWorldSaveGame::TryToLoadWorld(WorldName, Seed, StartPlayerPosition))
 		return;
-	
-	PC->OnPlaceBlockRequest.AddUniqueDynamic(this, &ATerrainManager::PlaceBlockAtPlayerSelection);
-	PC->OnStartMining.AddUniqueDynamic(this, &ATerrainManager::StartBreakingBlocksAtPlayerSelection);
-	PC->OnStopMining.AddUniqueDynamic(this, &ATerrainManager::StopBreakingBlocksAtPlayerSelection);
 
+	// Bind Events
+	PC->OnPlaceBlockRequest.AddUniqueDynamic(this, &ATerrainManager::PlaceBlockAtPlayerSelection);
+
+	// Make the cube slightly larger than a regular block
 	HighlightCube->SetWorldScale3D(FVector(BlockSize * 0.011));
+
+	// Player Index
+	LastPlayerIndex = WorldLocationToChunkIndex(StartPlayerPosition);
+
+	// Set the player to the correct position when all the chunks are created
 	CreatedChunkCount = 0;
 
 	// Create Chunks and populate blocks
@@ -49,19 +86,14 @@ void ATerrainManager::CreateTerrain(AMinecraftPlayerController* Player, const FS
 		{
 			auto Spawned = GetWorld()->SpawnActor<AChunk>(ChunkBlueprint);
 			
-			FVector2DInt Index{X,Y};
+			const auto Index = FVector2DInt{X,Y} + LastPlayerIndex;
+			
 			Spawned->InitializeVariables(this);
 			Spawned->OnUpdated.AddUniqueDynamic(this, &ATerrainManager::OnChunkCreated);
 			Spawned->OnUpdated.AddUniqueDynamic(this, &ATerrainManager::OnChunkUpdated);
 			Spawned->OnEdgeUpdated.BindDynamic(this, &ATerrainManager::OnChunkEdgeUpdated);
 			Spawned->BuildBlocks(Index);
-
-			const auto NewPosition = FVector(
-				X * BlockSize * BlockCount.X,
-				Y * BlockSize * BlockCount.Y,
-				0
-			);
-			Spawned->SetActorLocation(NewPosition);
+			Spawned->SetActorLocation(ChunkIndexToWorldLocation(Index));
 
 			Chunks.Add(Index, Spawned);
 		}
@@ -81,84 +113,50 @@ bool ATerrainManager::GetBlockSafe(const FVector2DInt& ChunkIndex, const FVector
 
 void ATerrainManager::PlaceBlockAtPlayerSelection()
 {
-	// TODO Clean up all code related to pc
-	
 	if (!PC)
 		return;
 
 	const auto& SelectedPosition = PC->GetSelectedPosition();
-	const FVector BaseBlockVector(
-		FMath::FloorToInt((SelectedPosition.Position.X + SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
-		FMath::FloorToInt((SelectedPosition.Position.Y + SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
-		FMath::FloorToInt((SelectedPosition.Position.Z + SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
-	);
-	
-	const auto& BaseIndexX = static_cast<int32>(BaseBlockVector.X) % BlockCount.X;
-	const auto& BaseIndexY = static_cast<int32>(BaseBlockVector.Y) % BlockCount.Y;
-	const auto& BaseIndexZ = static_cast<int32>(BaseBlockVector.Z) % BlockCount.Z;
-			
-	const FVectorByte CurrentBlockIndex(
-		(BaseIndexX >= 0 ? BaseIndexX : BaseIndexX + BlockCount.X),
-		(BaseIndexY >= 0 ? BaseIndexY : BaseIndexY + BlockCount.Y),
-		BaseIndexZ
-	);
+	const auto& BaseBlockVector = ClampPlayerSelection(SelectedPosition.Position, SelectedPosition.Normal, false);
 
-	const auto& ChunkIndex = WorldLocationToChunkIndex(SelectedPosition.Position);
-
-	//const FName TraceTag("MyTraceTag");
-	//GetWorld()->DebugDrawTraceTag = TraceTag;
-	
-	FCollisionQueryParams Params;
-	//Params.TraceTag = TraceTag;
-
-	FVector TracePos = BaseBlockVector * BlockSize - FVector(-1 * BlockSize / 2);
+	// Don't place blocks inside player
 	FHitResult Hit;
+	const FVector TracePos = BaseBlockVector * BlockSize - FVector(-1 * BlockSize / 2);
 	const bool HitPlayer = GetWorld()->SweepSingleByObjectType(
 		Hit,
 		TracePos,
 		TracePos,
 		FQuat::Identity,
 		ECC_Pawn,
-		FCollisionShape::MakeBox(HighlightCube->Bounds.BoxExtent),
-		Params
+		FCollisionShape::MakeBox(HighlightCube->Bounds.BoxExtent)
 	);
 	
+	const auto& CurrentBlockIndex = ClampedWorldLocationToBlockIndex(BaseBlockVector);
+	const auto& ChunkIndex = WorldLocationToChunkIndex(SelectedPosition.Position);
 	if (!HitPlayer && Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->ContainsBlock(CurrentBlockIndex))
 	{
 		Chunks[ChunkIndex]->AddBlock(CurrentBlockIndex, PC->GetSelectedBlock());
 	}
 }
 
-void ATerrainManager::StartBreakingBlocksAtPlayerSelection()
-{
-	MiningTime = 0;
-	bPlayerIsMining = true;
-}
-
-void ATerrainManager::StopBreakingBlocksAtPlayerSelection()
-{
-	bPlayerIsMining = false;
-}
-
 void ATerrainManager::OnChunkCreated(const FVector2DInt& UpdatedIndex)
 {
 	CreatedChunkCount++;
 	Chunks[UpdatedIndex]->OnUpdated.RemoveDynamic(this, &ATerrainManager::OnChunkCreated);
-	
+
+	// If all initial chunks were created, let the game spawn player, etc.
 	if (CreatedChunkCount == Chunks.Num())
+	{
+		// ReSharper disable once CppExpressionWithoutSideEffects
 		OnTerrainGenerated.ExecuteIfBound();
+	}
 }
 
 void ATerrainManager::OnChunkUpdated(const FVector2DInt& UpdatedIndex)
 {
-	const auto NewPosition = FVector(
-				UpdatedIndex.X * BlockSize * BlockCount.X,
-				UpdatedIndex.Y * BlockSize * BlockCount.Y,
-				0
-			);
-	
-	Chunks[UpdatedIndex]->SetActorLocation(NewPosition);
-	
+	Chunks[UpdatedIndex]->SetActorLocation(ChunkIndexToWorldLocation(UpdatedIndex));
+
+	// If a chunk is updated, check if any other chunks are waiting for block information
 	for (const auto & Chunk : Chunks)
 	{
 		TArray<FVector2DInt> Directions;
@@ -176,6 +174,7 @@ void ATerrainManager::OnChunkUpdated(const FVector2DInt& UpdatedIndex)
 
 void ATerrainManager::OnChunkEdgeUpdated(const FVector2DInt& UpdatedIndex, const TArray<FVector2DInt>& Directions)
 {
+	// Update Chunks only next to the updated chunk in the correct direction
 	for (const auto & Direction : Directions)
 	{
 		const auto TargetIndex = UpdatedIndex + Direction;
@@ -188,35 +187,38 @@ void ATerrainManager::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	if (CreatedChunkCount != Chunks.Num())
+		return;
+	
+	// If there is no PC, there is no need to continue with the tick
 	if (!PC)
 		return;
 
-	const auto Pawn = PC->GetPawn();
-	if (!Pawn)
-		return;
+	// Null safety
+	if (const auto Pawn = PC->GetPawn())
+	{
+		const auto& PlayerPosition = Pawn->GetActorLocation();
 
-	const auto& PlayerPosition = Pawn->GetActorLocation();
-
-	UpdateChunks(PlayerPosition);
-
-	UpdatePlayer(DeltaTime);
+		UpdateChunks(PlayerPosition);
+		UpdatePlayer(DeltaTime);
+	}
 }
 
 void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 {
-	// TODO Save Chunks on exit
 	const FVector2DInt& PlayerIndex = WorldLocationToChunkIndex(PlayerPosition);
 
+	// Check if new chunks need to be rendered
 	if (PlayerIndex != LastPlayerIndex)
 	{
 		const auto XMax = PlayerIndex.X + ChunkRenderDistance;
 		const auto XMin = PlayerIndex.X - ChunkRenderDistance;
-		
 		const auto YMax = PlayerIndex.Y + ChunkRenderDistance;
 		const auto YMin = PlayerIndex.Y - ChunkRenderDistance;
 
 		for (auto & Chunk : Chunks)
 		{
+			// If the chunk is too far away from the player, make it obsolete
 			const auto& WP = Chunk.Value->GetWorldIndex();
 			if (WP.X > XMax || WP.X < XMin || WP.Y > YMax || WP.Y < YMin)
 			{
@@ -224,12 +226,13 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 			}
 		}
 
-		// Remove obsolete from active chunks
+		// Remove obsolete from active chunks. Done outside of the first loop for safety
 		for (const auto& ObsoleteChunk : ObsoleteChunks)
 		{
 			Chunks.Remove(ObsoleteChunk->GetWorldIndex());
 		}
 
+		// Keep track of which obsolete chunks were already used
 		int32 ObsoleteChunkIndex = 0;
 		// Generate Block Data
 		for (int32 X = -ChunkRenderDistance; X <= ChunkRenderDistance; X++)
@@ -237,6 +240,8 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 			for (int32 Y = -ChunkRenderDistance; Y <= ChunkRenderDistance; Y++)
 			{
 				const FVector2DInt Index{X + PlayerIndex.X,Y + PlayerIndex.Y};
+				
+				// If block is within player range, but isn't rendered
 				if (!Chunks.Contains(Index))
 				{
 					const auto ChunkNum = ObsoleteChunks.Num();
@@ -249,11 +254,13 @@ void ATerrainManager::UpdateChunks(const FVector& PlayerPosition)
 					ObsoleteChunkIndex++;
 					
 					Chunks.Add(Index, Chunk);
+					// Rebuild Blocks for the chunk
 					Chunk->BuildBlocks(Index);
 				}
 			}
 		}
 
+		// Now that blocks are rebuild, geometry can be safely rebuilt as well
 		for (const auto & ObsoleteChunk : ObsoleteChunks)
 		{
 			ObsoleteChunk->RebuildGeometry();
@@ -269,43 +276,34 @@ void ATerrainManager::UpdatePlayer(const float& DeltaTime)
 	if (PC->GetCurrentState() == EPlayerState::Pickaxe)
 	{
 		const auto& SelectedPosition = PC->GetSelectedPosition();
-		const FVector BaseBlockVector(
-			FMath::FloorToInt((SelectedPosition.Position.X - SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
-			FMath::FloorToInt((SelectedPosition.Position.Y - SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
-			FMath::FloorToInt((SelectedPosition.Position.Z - SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
-		);
-		HighlightCube->SetWorldLocation(BaseBlockVector * BlockSize);
+		const FVector BaseBlockVector = ClampPlayerSelection(SelectedPosition.Position, SelectedPosition.Normal, true);
+		
+		if (BaseBlockVector.Z < BlockCount.Z)
+			HighlightCube->SetWorldLocation(BaseBlockVector * BlockSize);
 
-		if (bPlayerIsMining)
+		if (PC->IsMining())
 		{
-			MiningTime += DeltaTime;
+			// Update For how long the player has been mining a block
+			PC->UpdateMiningTime(DeltaTime);
 
-			const auto& BaseIndexX = static_cast<int32>(BaseBlockVector.X) % BlockCount.X;
-			const auto& BaseIndexY = static_cast<int32>(BaseBlockVector.Y) % BlockCount.Y;
-			const auto& BaseIndexZ = static_cast<int32>(BaseBlockVector.Z) % BlockCount.Z;
-			
-			const FVectorByte CurrentBlockIndex(
-				(BaseIndexX >= 0 ? BaseIndexX : BaseIndexX + BlockCount.X),
-				(BaseIndexY >= 0 ? BaseIndexY : BaseIndexY + BlockCount.Y),
-				BaseIndexZ
-			);
-			
-			if (CurrentBlockIndex != MiningBlockIndex)
-			{
-				MiningTime = 0;
-				MiningBlockIndex = CurrentBlockIndex;
-			}
+			const auto& CurrentBlockIndex = ClampedWorldLocationToBlockIndex(BaseBlockVector);
+
+			// If player started mining another block
+			if (CurrentBlockIndex != PC->GetCurrentMiningBlock())
+				PC->SetCurrentMiningBlock(CurrentBlockIndex);
 			
 			const auto& ChunkIndex = WorldLocationToChunkIndex(SelectedPosition.Position);
 			EBlockType BlockType;
-			// Block Exists
-			if (Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->GetBlockTypeSafe(MiningBlockIndex, BlockType))
+			
+			// Chunk and Block Exists
+			if (Chunks.Contains(ChunkIndex) && Chunks[ChunkIndex]->GetBlockTypeSafe(PC->GetCurrentMiningBlock(), BlockType))
 			{
 				const auto& Data = BlocksData->Blocks[BlockType];
-				if (Data.bIsBreakable && Data.BreakTime <= MiningTime)
+				// Has the player been mining for long enough?
+				if (Data.bIsBreakable && Data.BreakTime <= PC->GetMiningTime())
 				{
-					MiningTime = 0;
-					Chunks[ChunkIndex]->RemoveBlock(MiningBlockIndex);
+					Chunks[ChunkIndex]->RemoveBlock(PC->GetCurrentMiningBlock());
+					PC->ResetMiningTime();
 				}
 			}
 			
@@ -314,15 +312,22 @@ void ATerrainManager::UpdatePlayer(const float& DeltaTime)
 	else if (PC->GetCurrentState() == EPlayerState::PlaceBlock)
 	{
 		const auto& SelectedPosition = PC->GetSelectedPosition();
-		const FVector BaseBlockVector(
-			FMath::FloorToInt((SelectedPosition.Position.X + SelectedPosition.Normal.X * (BlockSize / 2)) / BlockSize),
-			FMath::FloorToInt((SelectedPosition.Position.Y + SelectedPosition.Normal.Y * (BlockSize / 2)) / BlockSize),
-			FMath::FloorToInt((SelectedPosition.Position.Z + SelectedPosition.Normal.Z * (BlockSize / 2)) / BlockSize)
-		);
+		const FVector BaseBlockVector = ClampPlayerSelection(SelectedPosition.Position, SelectedPosition.Normal, false);
 		HighlightCube->SetWorldLocation(BaseBlockVector * BlockSize);
 	}
 	else
 	{
 		HighlightCube->SetWorldLocation({0,0,-100});
 	}
+}
+
+void ATerrainManager::DestroyTerrain()
+{
+	// Split from above so geometry doesn't need to update multiple times
+	for (auto & Chunk : Chunks)
+	{
+		Chunk.Value->TryToSave();
+		Chunk.Value->Destroy();
+	}
+	Chunks.Empty();
 }

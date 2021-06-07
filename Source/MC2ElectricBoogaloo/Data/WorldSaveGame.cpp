@@ -22,11 +22,12 @@ void UWorldSaveGame::GetSavedWorlds(TArray<FString>& Names)
 	Names = Visitor.DirectoryNames;
 }
 
-void UWorldSaveGame::SaveWorld(const FString& SaveName, const float& NewSeed, FWorldSaveDelegate OnSaved)
+void UWorldSaveGame::SaveWorld(const FString& SaveName, const float& NewSeed, const FVector& NewPlayerPosition, FWorldSaveDelegate OnSaved)
 {
 	if (auto SaveGameInstance = Cast<UWorldSaveGame>(UGameplayStatics::CreateSaveGameObject(StaticClass())))
 	{
 		SaveGameInstance->Seed = NewSeed;
+		SaveGameInstance->PlayerPosition = NewPlayerPosition;
 
 		const auto SavePath = FPaths::Combine(FPaths::ProjectSavedDir(), FString("Worlds"), SaveName, FString("World.sav"));
 		
@@ -39,6 +40,7 @@ void UWorldSaveGame::SaveWorld(const FString& SaveName, const float& NewSeed, FW
 
 			AsyncTask(ENamedThreads::GameThread, [&]()
 			{
+				// ReSharper disable once CppExpressionWithoutSideEffects
 				OnSaved.ExecuteIfBound();
 			});
 		});
@@ -53,7 +55,7 @@ void UWorldSaveGame::DeleteWorld(const FString& SaveName)
 		IFileManager::Get().DeleteDirectory(*WorldPath, true, true);
 }
 
-bool UWorldSaveGame::TryToLoadWorld(const FString& SaveName, float& NewSeed)
+bool UWorldSaveGame::TryToLoadWorld(const FString& SaveName, float& NewSeed, FVector& NewPlayerPosition)
 {
 	const auto& FilePath = FPaths::Combine(FPaths::ProjectSavedDir(), FString("Worlds"), SaveName, FString("World.sav"));
 	
@@ -70,5 +72,7 @@ bool UWorldSaveGame::TryToLoadWorld(const FString& SaveName, float& NewSeed)
 		return false;
 
 	NewSeed = SaveGame->Seed;
+	NewPlayerPosition = SaveGame->PlayerPosition;
+	
 	return true;
 }

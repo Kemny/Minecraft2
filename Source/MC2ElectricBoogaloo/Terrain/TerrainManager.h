@@ -39,29 +39,31 @@ public:
 	
 	virtual void Tick(float DeltaTime) override;
 
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
+	float GetSeedNoiseWeight() const { return SeedNoiseWeight; }
+	UFUNCTION(BlueprintPure)
 	float GetNoisePersistence() const { return NoisePersistence; }
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	float GetNoiseDamper() const { return NoiseDamper; }
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	uint8 GetNoiseOctaves() const { return NoiseOctaves; }
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	UBlocksDataAsset* GetBlocksData() const { return BlocksData; }
 
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	int32 GetBlockSize() const { return BlockSize; }
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	FVectorByte GetBlockCount() const { return BlockCount; }
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	void GetBlockHeights(TArray<FBlockSpawnInfo>& OutHeights) const { OutHeights = BlockHeights; }
 	
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	FString GetWorldName() const { return WorldName; }
 
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	float GetWorldSeed() const { return Seed; }
 
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	FLinearColor GetTypeColor(const EBlockType& Type) const
 	{
 		if (!BlocksData || !BlocksData->Blocks.Contains(Type))
@@ -70,7 +72,7 @@ public:
 		return BlocksData->Blocks[Type].Color;
 	}
 
-	UFUNCTION()
+	UFUNCTION(BlueprintPure)
 	bool GetBlockSafe(const FVector2DInt& ChunkIndex, const FVectorByte& BlockIndex, FBlock& Block) const;
 
 	UFUNCTION(BlueprintPure)
@@ -89,6 +91,8 @@ protected:
 	uint8 NoiseOctaves;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
 	float NoisePersistence;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noise")
+	float SeedNoiseWeight = 1;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blocks")
 	UBlocksDataAsset* BlocksData;
@@ -116,7 +120,6 @@ protected:
 	FString WorldName;
 	UPROPERTY(EditAnywhere, Category = "Chunks")
 	float Seed;
-	
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	USceneComponent* Root;
@@ -126,6 +129,9 @@ protected:
 	
 	UPROPERTY()
 	AMinecraftPlayerController* PC;
+	
+	UPROPERTY(BlueprintReadOnly)
+	FVector StartPlayerPosition;
 
 	UFUNCTION()
 	void UpdateChunks(const FVector& PlayerPosition);
@@ -133,20 +139,10 @@ protected:
 	void UpdatePlayer(const float& DeltaTime);
 
 	UFUNCTION()
-	void PlaceBlockAtPlayerSelection();
-
-	// Could be on the PC as well, but since it only interacts with this actor anyway, there is no need.
-	UPROPERTY()
-	bool bPlayerIsMining; 
-	UPROPERTY()
-	float MiningTime;
-	UPROPERTY()
-	FVectorByte MiningBlockIndex;
+	FVector ChunkIndexToWorldLocation(const FVector2DInt& ChunkIndex) const;
 	
 	UFUNCTION()
-	void StartBreakingBlocksAtPlayerSelection();
-	UFUNCTION()
-	void StopBreakingBlocksAtPlayerSelection();
+	void PlaceBlockAtPlayerSelection();
 
 	UPROPERTY()
 	int32 CreatedChunkCount;
@@ -157,4 +153,12 @@ protected:
 	void OnChunkUpdated(const FVector2DInt& UpdatedIndex);
 	UFUNCTION()
 	void OnChunkEdgeUpdated(const FVector2DInt& UpdatedIndex, const TArray<FVector2DInt>& Directions);
+
+	UFUNCTION()
+	FVector ClampPlayerSelection(const FVector& SelectedPosition, const FVector& SelectedNormal, bool bSubtractNormal) const;
+	UFUNCTION()
+	FVectorByte ClampedWorldLocationToBlockIndex(const FVector& Position) const;
+
+	UFUNCTION(BlueprintCallable)
+	void DestroyTerrain();
 };

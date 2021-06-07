@@ -142,5 +142,8 @@ public:
 	void AddBlock(const FVectorByte& BlockIndex, const EBlockType Type);
 
 	UFUNCTION()
+	void TryToSave() const;
+	
+	UFUNCTION()
 	bool IsBlockEdge(const FVectorByte& BlockIndex, TArray<FVector2DInt>& EdgeDirections) const;
 };

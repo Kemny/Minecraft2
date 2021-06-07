@@ -4,6 +4,39 @@
 #include "MinecraftCharacter.h"
 #include "Camera/CameraComponent.h"
 
+AMinecraftPlayerController::AMinecraftPlayerController()
+{
+	OnStartMining.AddUniqueDynamic(this, &AMinecraftPlayerController::OnStartMiningFunction);
+	OnStopMining.AddUniqueDynamic(this, &AMinecraftPlayerController::OnStopMiningFunction);
+}
+
+void AMinecraftPlayerController::OnStartMiningFunction()
+{
+	ResetMiningTime();
+	bIsMining = true;
+}
+
+void AMinecraftPlayerController::OnStopMiningFunction()
+{
+	bIsMining = false;
+}
+
+void AMinecraftPlayerController::SetCurrentMiningBlock(const FVectorByte& BlockIndex)
+{
+	CurrentMiningBlock = BlockIndex;
+	ResetMiningTime();
+}
+
+void AMinecraftPlayerController::UpdateMiningTime(const float& DeltaTime)
+{
+	MiningTime += DeltaTime;
+}
+
+void AMinecraftPlayerController::ResetMiningTime()
+{
+	MiningTime = 0;
+}
+
 void AMinecraftPlayerController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);

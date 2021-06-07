@@ -18,12 +18,14 @@ public:
 	static void GetSavedWorlds(TArray<FString>& Names);
 	
 	UFUNCTION(BlueprintCallable)
-	static void SaveWorld(const FString& SaveName, const float& NewSeed, FWorldSaveDelegate OnSaved);
+	static void SaveWorld(const FString& SaveName, const float& NewSeed, const FVector& NewPlayerPosition, FWorldSaveDelegate OnSaved);
 	UFUNCTION(BlueprintCallable)
 	static void DeleteWorld(const FString& SaveName);
 	UFUNCTION()
-	static bool TryToLoadWorld(const FString& SaveName, float& NewSeed);
+	static bool TryToLoadWorld(const FString& SaveName, float& NewSeed, FVector& NewPlayerPosition);
 	
 	UPROPERTY(SaveGame)
 	float Seed;
+	UPROPERTY(SaveGame)
+	FVector PlayerPosition;
 };

@@ -17,6 +17,7 @@ namespace BuildTask
 	const FVectorByte FrontRightTop(1,1,1);
 	const FVectorByte FrontLeftTop(1,0,1);
 
+	// Add 4 vertices and reuse triangles at same position
 	static void AddPlane(FMeshInfo& MeshInfo, const EBlockDirection& Direction, const FLinearColor& Color, const FVectorByte& BlockIndex, const AChunk* const Chunk)
 	{
 		FVector Normal;
@@ -114,8 +115,10 @@ namespace BuildTask
 		}
 		MeshInfo.Triangles[T6] = Index;
 	}
+	// Generate Mesh information on another thread
 	static void RebuildGeometry(FThreadSafeBool& bCancelThread, const AChunk* const Chunk, const ATerrainManager* const Parent, const TMap<FVectorByte, FBlock>& Blocks, const FVectorByte& BlockCount, const FVector2DInt& WorldIndex, FChunkUpdateDelegateInternal Callback)
 	{
+		// I couldn't figure out the Greedy Meshing algorithm
 		AsyncTask(ENamedThreads::AnyThread, [bCancelThread, Chunk, Parent, Blocks, BlockCount, WorldIndex, Callback]()
 		{
 			TArray<FVector2DInt> MissingDirections;
@@ -249,10 +252,12 @@ namespace BuildTask
 						AddPlane(MeshInfos[2], EBlockDirection::Back, Parent->GetTypeColor(Type), Index, Chunk);
 				}
 			}
-			// ReSharper disable once CppExpressionWithoutSideEffects
-			Callback.ExecuteIfBound(MeshInfos, MissingDirections);
+			AsyncTask(ENamedThreads::GameThread, [Callback, MeshInfos, MissingDirections]()
+			{
+				// ReSharper disable once CppExpressionWithoutSideEffects
+				Callback.ExecuteIfBound(MeshInfos, MissingDirections);
+			});
 		});
-		
 	}
 }
 
@@ -266,6 +271,7 @@ AChunk::AChunk()
 		SetRootComponent(Mesh);
 }
 
+// Set Variables, and reserve space
 void AChunk::InitializeVariables(ATerrainManager* NewParent)
 {
 	Parent = NewParent;
@@ -278,10 +284,17 @@ void AChunk::InitializeVariables(ATerrainManager* NewParent)
 	Blocks.Reserve(BlockCount.X * BlockCount.Y * BlockCount.Z);
 }
 
-void AChunk::BuildBlocks(const FVector2DInt& Index)
+// If there is something to save, do so
+void AChunk::TryToSave() const
 {
 	if (bIsDirty)
 		UChunkSaveGame::SaveChunk(Parent->GetWorldName(), WorldIndex, Blocks);
+}
+
+// Generate Block information for a new chunk index
+void AChunk::BuildBlocks(const FVector2DInt& Index)
+{
+	TryToSave();
 
 	WorldIndex = Index;
 	bIsDirty = false;
@@ -330,9 +343,8 @@ void AChunk::BuildBlocks(const FVector2DInt& Index)
 				Scale *= NoisePersistence;
 				TotalAmplitude += Amplitude;
 
-				// TODO Check Weights for Seed
 				const auto NoisePos = Scale * ScaledPos;
-				Noise += Amplitude * FMath::PerlinNoise3D(FVector(NoisePos.X, NoisePos.Y, Parent->GetWorldSeed()));
+				Noise += Amplitude * FMath::PerlinNoise3D(FVector(NoisePos.X, NoisePos.Y, Parent->GetWorldSeed() * Parent->GetSeedNoiseWeight()));
 			}
 
 			Noise /= TotalAmplitude;
@@ -359,6 +371,8 @@ void AChunk::BuildBlocks(const FVector2DInt& Index)
 		}
 	}
 }
+
+// Rebuild Meshes for all directions
 void AChunk::RebuildGeometry()
 {
 	static FChunkUpdateDelegateInternal OnRebuiltInternal;
@@ -375,41 +389,38 @@ void AChunk::RebuildGeometry()
 	BuildTask::RebuildGeometry(bCancelThread, this, Parent, Blocks, BlockCount, WorldIndex, OnRebuiltInternal);
 }
 
+// When the build thread is finished, pass the mesh info to unreal 
 void AChunk::OnBuildThreadFinished(const TArray<FMeshInfo>& NewMeshInfos, const TArray<FVector2DInt>& MissingDirections)
 {
-	AsyncTask(ENamedThreads::GameThread, [NewMeshInfos, MissingDirections, this]()
+	if (bCancelThread)
 	{
-		if (bCancelThread)
-		{
-			bCancelThread = false;
-			RebuildGeometry();
-			return;
-		}
+		bCancelThread = false;
+		RebuildGeometry();
+		return;
+	}
 
-		bIsThreadRunning = false;
+	bIsThreadRunning = false;
 
-		MissingChunkDirections = MissingDirections;
-		MeshInfos = NewMeshInfos;
-		
-		//TODO Greedy Meshing
+	MissingChunkDirections = MissingDirections;
+	MeshInfos = NewMeshInfos;
+	
+	for (uint8 i = 0; i < MeshInfos.Num(); ++i)
+	{
+		const auto & MeshInfo = MeshInfos[i];
+		// This function cannot be put on another thread nor is there a delegate for async collisions
+		Mesh->CreateMeshSection_LinearColor(
+			i,
+			MeshInfo.Vertices,
+			MeshInfo.Triangles,
+			MeshInfo.Normals,
+			TArray<FVector2D>(),
+			MeshInfo.VertexColors,
+			TArray<FProcMeshTangent>(),
+			true
+		);
+	}
 
-		for (uint8 i = 0; i < MeshInfos.Num(); ++i)
-		{
-			const auto & MeshInfo = MeshInfos[i];
-			Mesh->CreateMeshSection_LinearColor(
-				i,
-				MeshInfo.Vertices,
-				MeshInfo.Triangles,
-				MeshInfo.Normals,
-				TArray<FVector2D>(),
-				MeshInfo.VertexColors,
-				TArray<FProcMeshTangent>(),
-				true
-			);
-		}
-
-		OnUpdated.Broadcast(WorldIndex);
-	});
+	OnUpdated.Broadcast(WorldIndex);
 }
 
 void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
@@ -430,6 +441,7 @@ void AChunk::RemoveBlock(const FVectorByte& BlockIndex)
 			TArray<FVector2DInt> Directions;
 			if (IsBlockEdge(BlockIndex, Directions))
 			{
+				// ReSharper disable once CppExpressionWithoutSideEffects
 				OnEdgeUpdated.ExecuteIfBound(WorldIndex, Directions);
 			}
 		}
@@ -451,6 +463,7 @@ void AChunk::AddBlock(const FVectorByte& BlockIndex, const EBlockType Type)
 			TArray<FVector2DInt> Directions;
 			if (IsBlockEdge(BlockIndex, Directions))
 			{
+				// ReSharper disable once CppExpressionWithoutSideEffects
 				OnEdgeUpdated.ExecuteIfBound(WorldIndex, Directions);
 			}
 		}
@@ -480,7 +493,6 @@ FVector AChunk::GetBlockLocalPosition(const FVectorByte& BlockIndex) const
 	const auto& BlockSize = Parent->GetBlockSize();
 	return FVector(BlockIndex.X * BlockSize, BlockIndex.Y * BlockSize, BlockIndex.Z * BlockSize);
 }
-
 FVector AChunk::GetBlockWorldPosition(const FVectorByte& BlockIndex) const
 {
 	const auto& BlockSize = Parent->GetBlockSize();
